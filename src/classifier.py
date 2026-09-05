@@ -103,3 +103,60 @@ class ProductionClassifier:
         if not self._is_fitted[self.active_model_name]:
             raise RuntimeError(f"Active classifier '{self.active_model_name}' must be fit before predict_batch.")
         return self.models[self.active_model_name].predict(X).astype(np.int32)
+
+    def get_model_metadata(self, model_name: str | None = None) -> dict[str, str | bool | dict]:
+        """Return model metadata, hyperparams, and fitted status."""
+        target_name = model_name or self.active_model_name
+        if target_name not in self.models:
+            raise ValueError(f"Unknown model name: {target_name}")
+
+        model = self.models[target_name]
+        params = model.get_params() if hasattr(model, "get_params") else {}
+        # Convert non-serializable objects in params to strings
+        safe_params = {k: (str(v) if not isinstance(v, (int, float, bool, str, type(None))) else v) for k, v in params.items()}
+
+        return {
+            "model_name": target_name,
+            "is_active": (target_name == self.active_model_name),
+            "is_fitted": self._is_fitted[target_name],
+            "model_type": type(model).__name__,
+            "hyperparameters": safe_params,
+        }
+
+    def save_model_artifact(self, file_path: str, model_name: str | None = None) -> str:
+        """Serialize and save the active or specified classifier model instance to disk using joblib."""
+        import os
+        import joblib
+
+        target_name = model_name or self.active_model_name
+        if not self._is_fitted[target_name]:
+            raise RuntimeError(f"Cannot save unfitted model '{target_name}'.")
+
+        os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+        payload = {
+            "model_name": target_name,
+            "model_instance": self.models[target_name],
+            "metadata": self.get_model_metadata(target_name),
+        }
+        joblib.dump(payload, file_path)
+        print(f"[Classifier] Model artifact '{target_name}' successfully saved to '{file_path}'.")
+        return file_path
+
+    def load_model_artifact(self, file_path: str) -> str:
+        """Load a serialized classifier artifact from disk and register it as active."""
+        import os
+        import joblib
+
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Model artifact file not found: '{file_path}'")
+
+        payload = joblib.load(file_path)
+        model_name = payload.get("model_name", self.active_model_name)
+        model_instance = payload["model_instance"]
+
+        self.models[model_name] = model_instance
+        self._is_fitted[model_name] = True
+        self.active_model_name = model_name
+        print(f"[Classifier] Model artifact '{model_name}' successfully loaded from '{file_path}'. Active model set to '{model_name}'.")
+        return model_name
+

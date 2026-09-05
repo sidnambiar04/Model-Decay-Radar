@@ -55,6 +55,7 @@ def run_master_test_suite():
         "test_stage14_simulator",
         "test_stage15_modes",
         "test_stage16_frontend_api",
+        "test_stage17_model_lifecycle_enhanced",
     ]
 
     for mod in test_modules:
