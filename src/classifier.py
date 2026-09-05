@@ -53,6 +53,9 @@ class ProductionClassifier:
 
     def fit(self, X: np.ndarray, y: np.ndarray, model_name: str | None = None) -> None:
         """Train classifier models on features and labels. Handles 1-class datasets using a DummyClassifier fallback."""
+        if model_name is not None:
+            self.set_active_model(model_name)
+
         unique_classes = np.unique(y)
         has_multiple_classes = len(unique_classes) >= 2
         

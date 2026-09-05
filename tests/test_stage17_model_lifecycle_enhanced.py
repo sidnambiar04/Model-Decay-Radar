@@ -33,13 +33,15 @@ class TestStage17ModelLifecycleEnhanced(unittest.TestCase):
         self.artifact_dir = os.path.join(self.temp_dir.name, "artifacts")
         os.makedirs(self.artifact_dir, exist_ok=True)
 
-        # Generate synthetic 2-class dataset
+        # Generate synthetic separable 2-class dataset
         np.random.seed(42)
         self.X_train = np.random.normal(0, 1, size=(200, 10)).astype(np.float32)
-        self.y_train = np.random.choice([0, 1], size=200, p=[0.7, 0.3]).astype(np.int32)
+        self.y_train = np.random.choice([0, 1], size=200, p=[0.5, 0.5]).astype(np.int32)
+        self.X_train[self.y_train == 1] += 3.0
         
         self.X_val = np.random.normal(0, 1, size=(100, 10)).astype(np.float32)
-        self.y_val = np.random.choice([0, 1], size=100, p=[0.7, 0.3]).astype(np.int32)
+        self.y_val = np.random.choice([0, 1], size=100, p=[0.5, 0.5]).astype(np.int32)
+        self.X_val[self.y_val == 1] += 3.0
 
         self.classifier = ProductionClassifier()
         self.classifier.fit(self.X_train, self.y_train, model_name="Random Forest")
