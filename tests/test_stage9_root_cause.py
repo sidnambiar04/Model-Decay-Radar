@@ -56,6 +56,29 @@ class TestStage9RootCause(unittest.TestCase):
         self.assertIn("LIT101", top_two)
         self.assertIn("DPIT301", top_two)
         self.assertTrue(results[0]["statistically_drifted"])
+        self.assertIn("priority_score", results[0])
+        self.assertIn("diagnosis_tag", results[0])
+
+    def test_diagnosis_tags_differentiation(self):
+        np.random.seed(42)
+        ref_features = np.random.normal(0, 1, size=(100, 5))
+        cur_features = ref_features.copy()
+        cur_features[:, 0] += 4.0  # Drift sensor 0 (LIT101)
+
+        results = self.engine.analyze(
+            reference_scaled=ref_features,
+            current_batch_scaled=cur_features,
+            feature_names=self.feature_names,
+            ae_model=None,
+            run_shap=False,
+            top_k=5,
+        )
+
+        lit101 = next(r for r in results if r["feature"] == "LIT101")
+        self.assertEqual(lit101["diagnosis_tag"], "CRITICAL_ATTRIBUTION")
+
+        fit101 = next(r for r in results if r["feature"] == "FIT101")
+        self.assertEqual(fit101["diagnosis_tag"], "NOMINAL")
 
 
 if __name__ == "__main__":

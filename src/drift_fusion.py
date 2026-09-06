@@ -103,17 +103,19 @@ class DDMDetector:
 @dataclass
 class FusionResult:
     drift_detected: bool
-    drift_type: str              # "none" | "gradual" | "sudden" | "concept_drift" | "covariate_drift"
+    drift_type: str              # "none" | "gradual" | "sudden" | "concept_drift" | "covariate_drift" | "novelty_warning"
     drift_severity: float        # 0.0 to 1.0
     fusion_score: float          # 0.0 to 1.0
     detector_signals: Dict[str, Any]
+    classification_evidence: Dict[str, Any] = field(default_factory=dict)
 
 
 class DriftSignalFusionEngine:
     """
     Centralized Drift Signal Fusion Engine.
     Combines VAE reconstruction loss, KL divergence, Wasserstein distance,
-    KS statistics, ADWIN, and DDM.
+    KS statistics, ADWIN, DDM, and Epistemic Uncertainty into a unified
+    composite score with transparent classification evidence logs.
     """
     def __init__(self):
         self.adwin = ADWINDetector()
@@ -147,10 +149,11 @@ class DriftSignalFusionEngine:
         adwin_signal = False
         ddm_signal = False
         accuracy_drop = False
+        batch_accuracy = 1.0
         if batch_labels is not None and batch_predictions is not None and len(batch_labels) == len(batch_predictions) and len(batch_labels) > 0:
             errors = (batch_labels != batch_predictions).astype(float)
-            acc = 1.0 - float(np.mean(errors))
-            if acc < 0.80:
+            batch_accuracy = 1.0 - float(np.mean(errors))
+            if batch_accuracy < 0.80:
                 accuracy_drop = True
 
             for err in errors:
@@ -177,22 +180,84 @@ class DriftSignalFusionEngine:
         )
         fusion_score = float(np.clip(fusion_score, 0.0, 1.0))
 
-        drift_detected = bool(fusion_score >= config.fusion_vote_threshold or kl_signal)
+        drift_detected = bool(fusion_score >= config.fusion_vote_threshold or kl_signal or (supervised_signal and (vae_signal or kl_signal or ks_signal)))
         drift_severity = float(np.clip(fusion_score * 1.2, 0.0, 1.0))
 
-        # 4. Drift Type Classification Logic
+        # 4. Refined Drift Taxonomy Classification Logic & Evidence Generation
+        # Conditions:
+        # - concept_drift: supervised error shift with accuracy drop or ADWIN/DDM triggers
+        # - sudden: high magnitude shift (severity >= 0.65) rapidly appearing across detectors
+        # - covariate_drift: feature distribution shift without supervised label degradation
+        # - novelty_warning: high epistemic uncertainty indicating unseen data patterns
+        # - gradual: moderate distribution shift (severity < 0.65)
+        # - none: stable baseline metrics
+        condition_matched = "nominal_baseline"
+        primary_reason = "All detector metrics within safe operating limits"
+
         if not drift_detected:
-            drift_type = "none"
-        elif supervised_signal and (vae_signal or kl_signal):
+            if mean_uncertainty >= 0.70:
+                drift_detected = True
+                drift_type = "novelty_warning"
+                condition_matched = "epistemic_uncertainty_spike"
+                primary_reason = f"Epistemic model uncertainty ({mean_uncertainty:.2f}) indicates out-of-distribution input novelty"
+            else:
+                drift_type = "none"
+                condition_matched = "nominal_baseline"
+                primary_reason = "Reconstruction loss, KL divergence, and KS tests show stable distribution"
+        elif supervised_signal and (vae_signal or kl_signal or accuracy_drop):
             drift_type = "concept_drift"
+            condition_matched = "supervised_error_shift"
+            primary_reason = (
+                f"Label-dependent degradation observed (Accuracy={batch_accuracy:.1%}, "
+                f"ADWIN={adwin_signal}, DDM={ddm_signal})"
+            )
+        elif (batch_labels is not None and not supervised_signal) and (vae_signal or kl_signal or ks_signal or wasserstein_signal):
+            # Ground-truth labels available and accuracy confirmed stable, but input distribution shifted -> Pure Covariate Shift
+            drift_type = "covariate_drift"
+            condition_matched = "feature_shift_stable_labels"
+            primary_reason = f"Input feature distribution shifted (KS ratio={ks_feature_ratio:.2f}) while predictive accuracy remained stable at {batch_accuracy:.1%}"
         elif (vae_signal or kl_signal) and drift_severity >= 0.65:
             drift_type = "sudden"
+            condition_matched = "high_severity_step_shift"
+            primary_reason = f"High-severity multi-detector shift detected (severity={drift_severity:.2f} >= 0.65, KL p={p_value:.5f})"
         elif (vae_signal or kl_signal) and drift_severity < 0.65:
             drift_type = "gradual"
+            condition_matched = "moderate_distribution_shift"
+            primary_reason = f"Moderate distribution drift detected (severity={drift_severity:.2f} < 0.65, KL p={p_value:.5f})"
         elif ks_signal or wasserstein_signal:
             drift_type = "covariate_drift"
+            condition_matched = "univariate_or_wasserstein_shift"
+            primary_reason = f"Univariate KS feature drift or Wasserstein distance ({wasserstein_distance:.3f}) triggered"
         else:
             drift_type = "gradual"
+            condition_matched = "fallback_drift"
+            primary_reason = "Multi-signal fusion score exceeded threshold"
+
+        classification_evidence = {
+            "drift_type": drift_type,
+            "condition_matched": condition_matched,
+            "primary_reason": primary_reason,
+            "severity_level": "high" if drift_severity >= 0.65 else ("moderate" if drift_severity >= 0.35 else "low"),
+            "detector_triggers": {
+                "vae_reconstruction": vae_signal,
+                "kl_permutation": kl_signal,
+                "ks_univariate": ks_signal,
+                "wasserstein": wasserstein_signal,
+                "supervised_streaming": supervised_signal,
+                "high_uncertainty": bool(mean_uncertainty >= 0.70),
+            },
+            "metric_values": {
+                "mean_reconstruction_error": round(mean_reconstruction_error, 4),
+                "dynamic_threshold": round(dynamic_threshold, 4),
+                "observed_kl": round(observed_kl, 4),
+                "p_value": round(p_value, 6),
+                "wasserstein_distance": round(wasserstein_distance, 4),
+                "ks_feature_ratio": round(ks_feature_ratio, 4),
+                "fusion_score": round(fusion_score, 4),
+                "drift_severity": round(drift_severity, 4),
+                "mean_uncertainty": round(mean_uncertainty, 4),
+            },
+        }
 
         detector_signals = {
             "vae_loss_drift": vae_signal,
@@ -204,6 +269,7 @@ class DriftSignalFusionEngine:
             "ddm_drift": ddm_signal,
             "supervised_drift": supervised_signal,
             "uncertainty_level": round(mean_uncertainty, 4),
+            "classification_evidence": classification_evidence,
         }
 
         return FusionResult(
@@ -212,4 +278,5 @@ class DriftSignalFusionEngine:
             drift_severity=drift_severity,
             fusion_score=fusion_score,
             detector_signals=detector_signals,
+            classification_evidence=classification_evidence,
         )

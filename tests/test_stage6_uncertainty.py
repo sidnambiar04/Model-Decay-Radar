@@ -35,6 +35,19 @@ class TestStage6Uncertainty(unittest.TestCase):
         unc_scores = EnsembleRNNUncertainty.uncertainty_score(var_pred)
         self.assertEqual(len(unc_scores), len(series) - 10)
 
+    def test_normalize_uncertainty(self):
+        var_sample = np.array([0.05, 0.08, 0.06])
+        # Test relative scaling with baseline
+        norm_with_base = EnsembleRNNUncertainty.normalize_uncertainty(var_sample, baseline_variance=0.10)
+        self.assertGreaterEqual(norm_with_base, 0.0)
+        self.assertLessEqual(norm_with_base, 1.0)
+        self.assertAlmostEqual(norm_with_base, (0.05 + 0.08 + 0.06) / (3 * 0.10), places=4)
+
+        # Test saturation scaling without baseline
+        norm_sat = EnsembleRNNUncertainty.normalize_uncertainty(var_sample)
+        self.assertGreaterEqual(norm_sat, 0.0)
+        self.assertLessEqual(norm_sat, 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

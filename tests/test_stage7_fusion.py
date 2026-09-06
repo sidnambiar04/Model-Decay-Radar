@@ -69,6 +69,43 @@ class TestStage7FusionEngine(unittest.TestCase):
         self.assertTrue(res.drift_detected)
         self.assertEqual(res.drift_type, "sudden")
 
+    def test_covariate_drift_classification(self):
+        # Feature shift occurred (high KS shift ratio, Wasserstein), but accuracy is 100% stable
+        labels = np.array([0, 1, 0, 1] * 20)
+        preds = np.array([0, 1, 0, 1] * 20)  # 100% accuracy, no error degradation
+
+        res = self.fusion.evaluate_fusion(
+            mean_reconstruction_error=0.4,
+            dynamic_threshold=0.3,
+            observed_kl=0.05,
+            p_value=0.04,
+            wasserstein_distance=0.30,
+            score_ks_p_value=0.001,
+            feature_ks_results=[{"feature": f"sensor_{i}", "drift_confirmed": True} for i in range(5)],
+            batch_labels=labels,
+            batch_predictions=preds,
+        )
+        self.assertTrue(res.drift_detected)
+        self.assertEqual(res.drift_type, "covariate_drift")
+        self.assertIn("classification_evidence", res.detector_signals)
+        self.assertEqual(res.classification_evidence["condition_matched"], "feature_shift_stable_labels")
+
+    def test_novelty_warning_classification(self):
+        # No distribution drift on VAE/KL, but high epistemic uncertainty
+        res = self.fusion.evaluate_fusion(
+            mean_reconstruction_error=0.1,
+            dynamic_threshold=0.5,
+            observed_kl=0.01,
+            p_value=0.50,
+            wasserstein_distance=0.02,
+            score_ks_p_value=0.50,
+            feature_ks_results=[],
+            mean_uncertainty=0.85,
+        )
+        self.assertTrue(res.drift_detected)
+        self.assertEqual(res.drift_type, "novelty_warning")
+        self.assertEqual(res.classification_evidence["condition_matched"], "epistemic_uncertainty_spike")
+
 
 if __name__ == "__main__":
     unittest.main()

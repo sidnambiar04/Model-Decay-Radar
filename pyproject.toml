@@ -1,0 +1,9 @@
+[tool.pyright]
+include = ["src", "pipeline", "tests", "api"]
+extraPaths = ["src", "pipeline"]
+pythonVersion = "3.12"
+pythonPlatform = "Windows"
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "pipeline", "."]
+testpaths = ["tests"]

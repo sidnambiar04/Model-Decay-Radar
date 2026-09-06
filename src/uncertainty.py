@@ -72,3 +72,23 @@ class EnsembleRNNUncertainty:
     @staticmethod
     def uncertainty_score(unc):
         return unc.reshape(-1)
+
+    @staticmethod
+    def normalize_uncertainty(
+        variance_scores: np.ndarray,
+        baseline_variance: float = 0.0,
+        clip_max: float = 1.0,
+    ) -> float:
+        """
+        Derives a normalized [0, 1] epistemic uncertainty score from
+        Monte Carlo Dropout predictive forward pass variance.
+        """
+        arr = np.asarray(variance_scores).reshape(-1)
+        if len(arr) == 0:
+            return 0.0
+        mean_var = float(np.mean(arr))
+        if baseline_variance > 1e-9:
+            norm = mean_var / baseline_variance
+        else:
+            norm = 1.0 - float(np.exp(-5.0 * mean_var))
+        return float(np.clip(norm, 0.0, clip_max))

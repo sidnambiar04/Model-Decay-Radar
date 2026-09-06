@@ -294,13 +294,14 @@ class RadarOrchestrator:
         # ── Layer 4: RNN Uncertainty ────────────────────────────────────
         mc_t = config.mc_dropout_t
         if len(cur_errors) > 10:
-            _, unc = self.ensemble.mc_dropout_predict(cur_errors, seq_len=10, T=mc_t)
-            raw_unc = EnsembleRNNUncertainty.uncertainty_score(unc).mean()
-            # Normalise against reference uncertainty for a 0-1 score
-            ref_unc_sample = self.ref_errors[:len(cur_errors)]
-            _, ref_unc_mc = self.ensemble.mc_dropout_predict(ref_unc_sample, seq_len=10, T=mc_t)
-            ref_unc_val = EnsembleRNNUncertainty.uncertainty_score(ref_unc_mc).mean()
-            norm_unc = float(np.clip(raw_unc / (ref_unc_val + 1e-9), 0.0, 1.0))
+            _, cur_unc_mc = self.ensemble.mc_dropout_predict(cur_errors, seq_len=10, T=mc_t)
+            if self.ref_errors is not None and len(self.ref_errors) > 20:
+                ref_unc_sample = self.ref_errors[:len(cur_errors)]
+                _, ref_unc_mc = self.ensemble.mc_dropout_predict(ref_unc_sample, seq_len=10, T=mc_t)
+                ref_unc_val = EnsembleRNNUncertainty.uncertainty_score(ref_unc_mc).mean()
+                norm_unc = EnsembleRNNUncertainty.normalize_uncertainty(cur_unc_mc, baseline_variance=ref_unc_val)
+            else:
+                norm_unc = EnsembleRNNUncertainty.normalize_uncertainty(cur_unc_mc)
         else:
             norm_unc = 0.0
 

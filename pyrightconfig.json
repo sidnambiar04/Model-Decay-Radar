@@ -1,0 +1,18 @@
+{
+  "include": [
+    "src",
+    "pipeline",
+    "tests",
+    "api"
+  ],
+  "extraPaths": [
+    "src",
+    "pipeline",
+    "C:/Users/Sidharth Nambiar/AppData/Roaming/Python/Python312/site-packages",
+    "C:/Program Files/Python312/Lib/site-packages"
+  ],
+  "typeCheckingMode": "off",
+  "reportMissingImports": true,
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Windows"
+}
