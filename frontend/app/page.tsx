@@ -1,7 +1,7 @@
 "use client";
 
 import { useMonitoring, MonitoringResult } from "./hooks/useMonitoring";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Activity,
   ShieldAlert,
@@ -17,7 +17,10 @@ import {
   Clock,
   Check,
   ChevronRight,
-  Database
+  Database,
+  Upload,
+  History,
+  FileText
 } from "lucide-react";
 
 export default function Dashboard() {
@@ -34,6 +37,11 @@ export default function Dashboard() {
     resetDashboard,
     updateConfig,
     triggerManualRetrain,
+    setOperatingMode,
+    uploadDataset,
+    replayStep,
+    fetchRegistryHistory,
+    rollbackModel,
     refetch,
   } = useMonitoring();
 
@@ -45,6 +53,33 @@ export default function Dashboard() {
   const [retrainMsg, setRetrainMsg] = useState<string | null>(null);
   const [isRetraining, setIsRetraining] = useState(false);
   const [activeAttributionTab, setActiveAttributionTab] = useState<"shap" | "ks">("shap");
+
+  // Registry state
+  const [isRegistryOpen, setIsRegistryOpen] = useState(false);
+  const [registryHistory, setRegistryHistory] = useState<any[]>([]);
+  const [isRollingBack, setIsRollingBack] = useState(false);
+
+  // Validation gate state
+  const [showValidationGate, setShowValidationGate] = useState(false);
+  const previousValidationStatus = useRef<string | undefined>(undefined);
+  const previousValidationCycle = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (latest?.validation_status && latest.validation_status !== "none") {
+      if (
+        latest.validation_status !== previousValidationStatus.current ||
+        latest.cycles !== previousValidationCycle.current
+      ) {
+        setShowValidationGate(true);
+        previousValidationStatus.current = latest.validation_status;
+        previousValidationCycle.current = latest.cycles;
+      }
+    }
+  }, [latest?.validation_status, latest?.cycles]);
+
+  // Upload state
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const handleRetrain = async () => {
     setIsRetraining(true);
@@ -69,6 +104,35 @@ export default function Dashboard() {
       await resetDashboard();
       setIsResetting(false);
     }
+  };
+
+  const handleOpenRegistry = async () => {
+    const data = await fetchRegistryHistory();
+    setRegistryHistory(data);
+    setIsRegistryOpen(true);
+  };
+
+  const handleRollback = async (versionId: string) => {
+    setIsRollingBack(true);
+    const msg = await rollbackModel(versionId);
+    alert(msg);
+    setIsRollingBack(false);
+    await handleOpenRegistry();
+  };
+
+  const handleUpload = async () => {
+    if (!uploadFile) return;
+    setIsUploading(true);
+    const msg = await uploadDataset(uploadFile);
+    alert(msg);
+    setIsUploading(false);
+    setUploadFile(null);
+  };
+
+  const handleReplayBatch = async () => {
+    setIsSimulating(true);
+    await replayStep();
+    setIsSimulating(false);
   };
 
   // Color mapping helpers based on status
@@ -508,6 +572,38 @@ export default function Dashboard() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Operating Mode Toggle */}
+          <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-1 mr-2">
+            <button
+              onClick={() => setOperatingMode("demo")}
+              className={`px-3 py-1 text-xs font-mono rounded-md transition-all ${
+                (!config?.operating_mode || config.operating_mode === "demo")
+                  ? "bg-zinc-800 text-white shadow"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              Simulation
+            </button>
+            <button
+              onClick={() => setOperatingMode("real_data")}
+              className={`px-3 py-1 text-xs font-mono rounded-md transition-all ${
+                config?.operating_mode === "real_data"
+                  ? "bg-zinc-800 text-white shadow"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              Real Data
+            </button>
+          </div>
+
+          <button
+            onClick={handleOpenRegistry}
+            className="flex items-center gap-1.5 px-3 py-2 border border-indigo-500/20 rounded-lg bg-indigo-950/10 text-indigo-400 hover:bg-indigo-950/30 transition-all font-mono text-xs font-semibold cursor-pointer"
+          >
+            <History className="w-3.5 h-3.5" />
+            Registry
+          </button>
+
           <button
             onClick={refetch}
             className="p-2 border border-zinc-800 rounded-lg hover:bg-zinc-900 text-zinc-400 hover:text-zinc-200 transition-all cursor-pointer"
@@ -525,15 +621,47 @@ export default function Dashboard() {
             {isResetting ? "Resetting..." : "Reset DB"}
           </button>
 
-          <button
-            onClick={handleSimulate}
-            disabled={isSimulating || !isConnected || !orchestratorReady}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)] transition-all font-semibold text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            title={!orchestratorReady ? "Orchestrator is still training. Please wait ~1-2 min." : "Inject simulated stable + drift data"}
-          >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            {isSimulating ? "Injecting Data..." : !orchestratorReady ? "Training…" : "Simulate Drift"}
-          </button>
+          {config?.operating_mode === "real_data" ? (
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white transition-all font-semibold text-xs cursor-pointer">
+                <Upload className="w-3.5 h-3.5" />
+                {uploadFile ? uploadFile.name : "Select CSV"}
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                />
+              </label>
+              {uploadFile && (
+                <button
+                  onClick={handleUpload}
+                  disabled={isUploading}
+                  className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50"
+                >
+                  {isUploading ? "Uploading..." : "Upload"}
+                </button>
+              )}
+              <button
+                onClick={handleReplayBatch}
+                disabled={isSimulating || !isConnected || !orchestratorReady}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)] transition-all font-semibold text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                Replay Batch
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleSimulate}
+              disabled={isSimulating || !isConnected || !orchestratorReady}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)] transition-all font-semibold text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title={!orchestratorReady ? "Orchestrator is still training. Please wait ~1-2 min." : "Inject simulated stable + drift data"}
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              {isSimulating ? "Injecting Data..." : !orchestratorReady ? "Training…" : "Simulate Drift"}
+            </button>
+          )}
         </div>
       </header>
 
@@ -783,7 +911,14 @@ export default function Dashboard() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {/* Card: Accuracy */}
               <div className="bg-zinc-950/20 border border-zinc-900/60 rounded-xl p-4 flex flex-col justify-between hover:border-zinc-800 transition-all">
-                <span className="text-[10px] font-semibold uppercase tracking-wider font-mono text-zinc-500">Inference Accuracy</span>
+                <div className="flex justify-between items-start">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider font-mono text-zinc-500">Inference Accuracy</span>
+                  {latest?.performance_status === "awaiting_ground_truth" ? (
+                    <span className="text-[9px] font-semibold bg-amber-950/40 text-amber-400 px-1.5 py-0.5 rounded border border-amber-900/50">Awaiting Ground Truth</span>
+                  ) : latest?.performance_status === "labels_available" ? (
+                    <span className="text-[9px] font-semibold bg-emerald-950/40 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-900/50">Labels Available</span>
+                  ) : null}
+                </div>
                 <span className="text-xl font-bold tracking-tight text-white font-mono mt-1">
                   {latest?.accuracy !== undefined ? `${(latest.accuracy * 100).toFixed(1)}%` : "N/A"}
                 </span>
@@ -913,6 +1048,154 @@ export default function Dashboard() {
           </>
         )}
       </main>
+
+      {/* Registry Modal */}
+      {isRegistryOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-[#0c0c10] border border-zinc-800 rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between p-5 border-b border-zinc-800 bg-zinc-950/50">
+              <div className="flex items-center gap-3">
+                <History className="w-5 h-5 text-indigo-400" />
+                <h2 className="text-lg font-bold text-white">Model Registry Lineage</h2>
+              </div>
+              <button 
+                onClick={() => setIsRegistryOpen(false)}
+                className="text-zinc-500 hover:text-white transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-5 overflow-y-auto flex-1">
+              <table className="w-full border-collapse text-left text-xs font-mono">
+                <thead>
+                  <tr className="border-b border-zinc-800 text-zinc-500 pb-2 uppercase text-[10px]">
+                    <th className="py-2.5 px-3">Version ID</th>
+                    <th className="py-2.5 px-3">Type</th>
+                    <th className="py-2.5 px-3">Timestamp</th>
+                    <th className="py-2.5 px-3 text-right">Metrics</th>
+                    <th className="py-2.5 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-900 text-zinc-300">
+                  {registryHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-10 text-center text-zinc-600">No models in registry.</td>
+                    </tr>
+                  ) : (
+                    registryHistory.map((model, idx) => (
+                      <tr key={idx} className="hover:bg-zinc-900/40 transition-colors">
+                        <td className="py-3 px-3 font-semibold text-indigo-300">
+                          {model.version_id}
+                          {idx === registryHistory.length - 1 && " (Active)"}
+                        </td>
+                        <td className="py-3 px-3 text-zinc-400 uppercase text-[10px] tracking-wider">
+                          {model.model_type}
+                        </td>
+                        <td className="py-3 px-3 text-zinc-500">
+                          {new Date(model.timestamp).toLocaleString()}
+                        </td>
+                        <td className="py-3 px-3 text-right text-emerald-400">
+                          {model.metrics?.accuracy ? `Acc: ${(model.metrics.accuracy * 100).toFixed(1)}%` : "-"}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            onClick={() => handleRollback(model.version_id)}
+                            disabled={isRollingBack}
+                            className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded text-[10px] uppercase font-semibold transition-colors disabled:opacity-50"
+                          >
+                            Rollback
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Validation Gate Modal */}
+      {showValidationGate && latest?.validation_metrics && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-[600px] overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-950/50">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <CheckCircle className={`w-5 h-5 ${latest?.validation_status === "promoted" ? "text-emerald-500" : "text-rose-500"}`} />
+                Validation Gate - Candidate Model Evaluation
+              </h2>
+              <button
+                className="text-zinc-400 hover:text-white transition-colors"
+                onClick={() => setShowValidationGate(false)}
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6">
+              <div className={`mb-6 p-4 rounded-lg border ${
+                latest?.validation_status === "promoted" 
+                  ? "bg-emerald-950/20 border-emerald-900/50" 
+                  : "bg-rose-950/20 border-rose-900/50"
+              }`}>
+                <h3 className={`font-semibold mb-1 ${
+                  latest?.validation_status === "promoted" ? "text-emerald-400" : "text-rose-400"
+                }`}>
+                  {latest?.validation_status === "promoted" ? "✅ Candidate Model Promoted" : "❌ Candidate Model Rejected"}
+                </h3>
+                <p className="text-sm text-zinc-400">
+                  {latest?.validation_status === "promoted" 
+                    ? "The retrained model outperformed the baseline safely and has been promoted to production."
+                    : "The retrained model failed to meet the required safety margins and was discarded. Active baseline remains in production."}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 mb-2">
+                <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider text-center">Metric</div>
+                <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider text-center">Active Baseline</div>
+                <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider text-center">Candidate Model</div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-4 p-3 bg-zinc-950/30 rounded border border-zinc-800">
+                  <div className="text-sm font-mono text-zinc-300 flex items-center justify-center">Accuracy</div>
+                  <div className="text-sm font-mono text-center">
+                    {(latest.validation_metrics.active_accuracy * 100).toFixed(2)}%
+                  </div>
+                  <div className={`text-sm font-mono text-center font-bold ${
+                    latest.validation_metrics.candidate_accuracy >= latest.validation_metrics.active_accuracy ? "text-emerald-400" : "text-rose-400"
+                  }`}>
+                    {(latest.validation_metrics.candidate_accuracy * 100).toFixed(2)}%
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4 p-3 bg-zinc-950/30 rounded border border-zinc-800">
+                  <div className="text-sm font-mono text-zinc-300 flex items-center justify-center">F1-Score</div>
+                  <div className="text-sm font-mono text-center">
+                    {(latest.validation_metrics.active_f1 * 100).toFixed(2)}%
+                  </div>
+                  <div className={`text-sm font-mono text-center font-bold ${
+                    latest.validation_metrics.candidate_f1 >= latest.validation_metrics.active_f1 - 0.02 ? "text-emerald-400" : "text-rose-400"
+                  }`}>
+                    {(latest.validation_metrics.candidate_f1 * 100).toFixed(2)}%
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded font-semibold transition-colors"
+                  onClick={() => setShowValidationGate(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

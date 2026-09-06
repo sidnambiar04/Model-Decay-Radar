@@ -117,3 +117,38 @@ class ScenarioSimulator:
             raise ValueError(f"Unknown scenario: '{scenario}'. Choose from normal, gradual, sudden, imbalance, recovery.")
 
         return raw_X, labels, pred_ids
+
+
+class CustomCSVReplayEngine:
+    """Batch iterator for custom user-uploaded CSV files in Real Data Monitoring Mode."""
+    def __init__(self, csv_filepath: str):
+        self.csv_filepath = csv_filepath
+        if not os.path.exists(csv_filepath):
+            raise FileNotFoundError(f"Custom dataset not found at: {csv_filepath}")
+        self.df = pd.read_csv(csv_filepath)
+        self.feature_cols = [c for c in self.df.columns if c not in ("Label", "label", "target", "Target", "_window", "prediction_id")]
+        self.current_idx = 0
+
+    def has_next_batch(self) -> bool:
+
+        return self.current_idx < len(self.df)
+
+    def get_next_batch(self, batch_size: int = 500) -> Tuple[np.ndarray, Optional[np.ndarray], List[str]]:
+        if not self.has_next_batch():
+            self.current_idx = 0  # Loop around if reached end
+        
+        sub_df = self.df.iloc[self.current_idx : self.current_idx + batch_size]
+        self.current_idx += len(sub_df)
+        
+        raw_X = sub_df[self.feature_cols].values.astype(np.float32)
+        
+        # Extract label if available
+        labels = None
+        for lcol in ("Label", "label", "target", "Target"):
+            if lcol in sub_df.columns:
+                labels = sub_df[lcol].values.astype(np.int32)
+                break
+                
+        pred_ids = [f"custom_{uuid.uuid4().hex[:10]}" for _ in range(len(sub_df))]
+        return raw_X, labels, pred_ids
+

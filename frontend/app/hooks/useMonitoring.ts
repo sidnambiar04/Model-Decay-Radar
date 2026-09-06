@@ -54,6 +54,16 @@ export interface MonitoringResult {
   alert_level: "none" | "warning" | "critical";
   alert_message: string;
   retraining_triggered: boolean;
+  active_model_version?: string;
+  validation_status?: string;
+  validation_metrics?: {
+    candidate_accuracy: number;
+    candidate_f1: number;
+    active_accuracy: number;
+    active_f1: number;
+    margin: number;
+  } | null;
+  cycles?: number;
 }
 
 export interface HistoryResponse {
@@ -76,9 +86,10 @@ export interface ServerConfig {
   available_classifiers: string[];
   window_size: number;
   p_value_threshold: number;
+  operating_mode?: "demo" | "real_data";
 }
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "http://127.0.0.1:8000";
 
 export function useMonitoring() {
   const [latest, setLatest] = useState<MonitoringResult | null>(null);
@@ -237,6 +248,87 @@ export function useMonitoring() {
     }
   };
 
+  const setOperatingMode = async (mode: "demo" | "real_data"): Promise<string> => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      if (!res.ok) throw new Error("Failed to set operating mode");
+      const data = await res.json();
+      await fetchData();
+      return `✅ ${data.message}`;
+    } catch (err: any) {
+      return `❌ Mode change failed: ${err.message}`;
+    }
+  };
+
+  const uploadDataset = async (file: File): Promise<string> => {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      
+      const res = await fetch(`${API_BASE}/admin/upload_dataset`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Failed to upload dataset");
+      const data = await res.json();
+      return `✅ ${data.message} (${data.rows} rows)`;
+    } catch (err: any) {
+      return `❌ Upload failed: ${err.message}`;
+    }
+  };
+
+  const replayStep = async (batchSize: number = 500): Promise<string> => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/replay_step`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ batch_size: batchSize }),
+      });
+      if (!res.ok) throw new Error("Failed to process next batch");
+      const data = await res.json();
+      const msg = `✅ ${data.message}`;
+      setSimulateMessage(msg);
+      setTimeout(() => fetchData(), 1000);
+      return msg;
+    } catch (err: any) {
+      const msg = `❌ Replay failed: ${err.message}`;
+      setSimulateMessage(msg);
+      return msg;
+    }
+  };
+
+  const fetchRegistryHistory = async (): Promise<any[]> => {
+    try {
+      const res = await fetch(`${API_BASE}/registry/history`);
+      if (!res.ok) throw new Error("Failed to fetch registry history");
+      const data = await res.json();
+      return data.history || [];
+    } catch (err: any) {
+      console.error(err);
+      return [];
+    }
+  };
+
+  const rollbackModel = async (versionId: string): Promise<string> => {
+    try {
+      const res = await fetch(`${API_BASE}/registry/rollback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version_id: versionId }),
+      });
+      if (!res.ok) throw new Error("Failed to rollback model");
+      const data = await res.json();
+      await fetchData();
+      return `✅ ${data.message}`;
+    } catch (err: any) {
+      return `❌ Rollback failed: ${err.message}`;
+    }
+  };
+
   return {
     latest,
     history,
@@ -251,6 +343,11 @@ export function useMonitoring() {
     resetDashboard,
     updateConfig,
     triggerManualRetrain,
+    setOperatingMode,
+    uploadDataset,
+    replayStep,
+    fetchRegistryHistory,
+    rollbackModel,
     refetch: fetchData,
   };
 }

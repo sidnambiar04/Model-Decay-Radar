@@ -5,8 +5,10 @@ Centralized object holding all system configurations, thresholds,
 weights, and training parameters.
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import Dict, Any
+
 
 
 @dataclass
@@ -56,6 +58,13 @@ class RadarConfig:
     validation_min_accuracy: float = 0.80
     db_path: str = "models/model_registry.db"
 
+    # Member 3: Dual Operating Modes & Database Config
+    operating_mode: str = "demo"  # "demo" or "real_data"
+    postgres_url: str = field(default_factory=lambda: os.getenv("POSTGRES_URL", os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/model_decay_radar")))
+    upload_dir: str = "data/uploads"
+    active_scenario: str = "normal"
+    drift_strength: float = 1.0
+
     def update(self, **kwargs: Any) -> Dict[str, Any]:
         """Dynamically update configuration values."""
         updated = {}
@@ -84,6 +93,7 @@ class RadarConfig:
             "mhs_weights": self.mhs_weights,
             "mhs_thresholds": self.mhs_thresholds,
             "fusion_weights": self.fusion_weights,
+            "operating_mode": self.operating_mode,
         }
 
 
