@@ -1,0 +1,30 @@
+INFO:     Started server process [4781]
+INFO:     Waiting for application startup.
+[Classifier] Fitting model: Random Forest (native 1-class support)...
+[Server] Active classifier 'Random Forest' trained on 20000 reference samples.
+[Server] Starting orchestrator setup (training AE + RNN)...
+[Orchestrator] Training Autoencoder on reference window...
+  [AE] epoch 1/10 loss: 0.712459
+  [AE] epoch 10/10 loss: 0.699439
+[Orchestrator] Training RNN Ensemble on reference error series...
+  [RNN 1] loss: 0.01940613
+  [RNN 2] loss: 0.02132864
+  [RNN 3] loss: 0.02166703
+[Orchestrator] Setup complete. Ready to monitor.
+[Server] Orchestrator ready.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:51429 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51432 - "GET /admin/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51431 - "GET /monitoring/history?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51430 - "GET /monitoring/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51436 - "POST /admin/mode HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51439 - "POST /admin/upload_dataset HTTP/1.1" 200 OK
+[Monitor] Queueing monitoring cycle on 500 samples...
+[Monitor] Running monitoring cycle on 500 samples...
+INFO:     127.0.0.1:51442 - "POST /admin/replay_step HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51445 - "GET /monitoring/status HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [4781]

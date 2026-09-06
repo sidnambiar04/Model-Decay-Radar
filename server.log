@@ -1,0 +1,10 @@
+INFO:     Started server process [4183]
+INFO:     Waiting for application startup.
+[Classifier] Fitting model: Random Forest (native 1-class support)...
+[Server] Active classifier 'Random Forest' trained on 20000 reference samples.
+[Server] Starting orchestrator setup (training AE + RNN)...
+[Orchestrator] Training Autoencoder on reference window...
+INFO:     Application startup complete.
+ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.

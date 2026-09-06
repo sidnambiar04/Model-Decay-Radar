@@ -8,8 +8,8 @@
   "extraPaths": [
     "src",
     "pipeline",
-    "C:/Users/Sidharth Nambiar/AppData/Roaming/Python/Python312/site-packages",
-    "C:/Program Files/Python312/Lib/site-packages"
+    "./src",
+    "./pipeline"
   ],
   "typeCheckingMode": "off",
   "reportMissingImports": true,

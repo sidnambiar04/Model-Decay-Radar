@@ -36,7 +36,7 @@ import pandas as pd
 from typing import Optional
 from dataclasses import asdict
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -44,7 +44,11 @@ from config import config
 from data_pipeline import DataWindowManager
 from orchestrator import RadarOrchestrator
 from classifier import ProductionClassifier
+from telemetry_logger import TelemetryLogger
 import calibration
+
+telemetry_logger = TelemetryLogger(postgres_url=config.postgres_url)
+
 
 
 # ─────────────────────────────────────────────
@@ -69,8 +73,8 @@ reference_scaled = wm.reference_scaled
 orchestrator = RadarOrchestrator(feature_names=FEATURE_COLS)
 
 # Train ProductionClassifier on reference window (raw features, before scaling)
-reference_X = reference_df[FEATURE_COLS].values.astype(np.float32)
-reference_y = reference_df[LABEL_COL].values.astype(np.int32)
+reference_X = reference_df[FEATURE_COLS].to_numpy(dtype=np.float32)
+reference_y = reference_df[LABEL_COL].to_numpy(dtype=np.int32)
 ml_model = ProductionClassifier()
 ml_model.fit(reference_X, reference_y, model_name=config.active_classifier)
 print(f"[Server] Active classifier '{config.active_classifier}' trained on {len(reference_X)} reference samples.")
@@ -83,6 +87,12 @@ buffer_features: list[list[float]] = []
 buffer_labels: list[int] = []
 buffer_predictions: list[int] = []
 buffer_lock = threading.Lock()
+
+delayed_buffer_features: list[list[float]] = []
+delayed_buffer_predictions: list[int] = []
+delayed_buffer_labels: list[int] = []
+pending_predictions: dict[str, dict] = {}
+delayed_buffer_lock = threading.Lock()
 
 monitoring_history : list[dict] = []   # list of MonitoringResult dicts
 history_lock       = threading.Lock()
@@ -102,9 +112,8 @@ setup_progress: str = "pending"     # "pending" | "training_ae" | "training_rnn"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: launch orchestrator training in background thread."""
-    thread = threading.Thread(target=run_setup, daemon=True)
-    thread.start()
+    """Startup: launch orchestrator training."""
+    run_setup()
     yield
     # Shutdown: nothing to clean up for MVP
 
@@ -148,6 +157,15 @@ class PredictResponse(BaseModel):
     batch_buffered: int  # how many samples are in the current window
 
 
+class DelayedLabel(BaseModel):
+    prediction_id: str
+    label: int
+
+
+class DelayedLabelRequest(BaseModel):
+    labels: list[DelayedLabel]
+
+
 # ─────────────────────────────────────────────
 # Background setup (runs once at startup)
 # ─────────────────────────────────────────────
@@ -157,6 +175,10 @@ def run_setup():
     try:
         setup_progress = "training_ae"
         print("[Server] Starting orchestrator setup (training AE + RNN)...", flush=True)
+        
+        if reference_scaled is None:
+            raise ValueError("reference_scaled is missing but required for setup.")
+            
         orchestrator.setup(
             reference_scaled,
             reference_raw_X=reference_X,
@@ -216,10 +238,21 @@ def run_monitoring_cycle_background(
                 if len(monitoring_history) > 200:
                     monitoring_history.pop(0)
 
+            # Persist to PostgreSQL database via TelemetryLogger
+            telemetry_logger.log_monitoring_result(result_dict)
+
+
             print(f"[Monitor] Batch {result.batch_id}: MHS={result.mhs:.3f} "
                   f"({result.mhs_status}), drift={result.drift_confirmed}, "
                   f"alert={result.alert_level}", flush=True)
 
+        except RuntimeError as e:
+            if "setup()" in str(e):
+                print(f"[Monitor] Orchestrator not fully setup, skipping cycle.", flush=True)
+        except Exception as e:
+            print(f"[Monitor] Error in monitoring cycle: {e}", flush=True)
+            import traceback; traceback.print_exc()
+            sys.stdout.flush()
         except Exception as e:
             print(f"[Monitor] Error in monitoring cycle: {e}", flush=True)
             import traceback; traceback.print_exc()
@@ -274,7 +307,10 @@ def predict(request: PredictRequest, background_tasks: BackgroundTasks):
         raise HTTPException(400, "Feature format invalid.")
 
     # Scale using reference-window scaler
-    scaled_features = wm.scaler.transform(raw_features.reshape(1, -1))[0]
+    if getattr(wm, "scaler", None) is None:
+        scaled_features = raw_features
+    else:
+        scaled_features = wm.scaler.transform(raw_features.reshape(1, -1))[0] # type: ignore
     scaled_features = np.clip(scaled_features, -2.0, 2.0)   # allow slight OOD
 
     # ML model prediction on raw features (returns immediately to user)
@@ -297,6 +333,16 @@ def predict(request: PredictRequest, background_tasks: BackgroundTasks):
         buffer_predictions.append(int(prediction))
         if request.label is not None:
             buffer_labels.append(request.label)
+        
+        # Store for potential delayed label arrival
+        pending_predictions[pred_id] = {
+            "features": scaled_features.tolist(),
+            "prediction": int(prediction)
+        }
+        # Prevent memory leak
+        if len(pending_predictions) > 10000:
+            oldest = list(pending_predictions.keys())[0]
+            del pending_predictions[oldest]
 
         current_buffer_size = len(buffer_features)
 
@@ -329,20 +375,63 @@ def predict(request: PredictRequest, background_tasks: BackgroundTasks):
     )
 
 
+@app.post("/labels/delayed")
+def labels_delayed(req: DelayedLabelRequest, background_tasks: BackgroundTasks):
+    """
+    Accepts delayed ground truth labels corresponding to previous predictions.
+    When we accumulate enough (window_size) delayed labels, trigger a supervised monitoring cycle.
+    """
+    processed = 0
+    with delayed_buffer_lock:
+        for delayed in req.labels:
+            if delayed.prediction_id in pending_predictions:
+                data = pending_predictions.pop(delayed.prediction_id)
+                delayed_buffer_features.append(data["features"])
+                delayed_buffer_predictions.append(data["prediction"])
+                delayed_buffer_labels.append(delayed.label)
+                processed += 1
+        
+        # If we reached window size, trigger monitoring cycle with supervised metrics
+        while len(delayed_buffer_features) >= config.window_size:
+            batch_feat = np.array(delayed_buffer_features[:config.window_size], dtype=np.float32)
+            batch_labels = np.array(delayed_buffer_labels[:config.window_size], dtype=np.int32)
+            batch_preds = np.array(delayed_buffer_predictions[:config.window_size], dtype=np.int32)
+            
+            del delayed_buffer_features[:config.window_size]
+            del delayed_buffer_labels[:config.window_size]
+            del delayed_buffer_predictions[:config.window_size]
+            
+            background_tasks.add_task(
+                run_monitoring_cycle_background,
+                batch_feat,
+                batch_labels,
+                batch_preds
+            )
+
+    return {"status": "success", "message": f"Processed {processed} delayed labels."}
+
+
 @app.get("/monitoring/latest")
 def monitoring_latest():
     """Latest monitoring result."""
-    with history_lock:
-        if not monitoring_history:
-            return {"status": "no_data", "message": "No monitoring cycles completed yet."}
-        return monitoring_history[-1]
+    history = telemetry_logger.get_recent_history(limit=1)
+    if not history:
+        with history_lock:
+            if not monitoring_history:
+                return {"status": "no_data", "message": "No monitoring cycles completed yet."}
+            return monitoring_history[-1]
+    return history[-1]
 
 
 @app.get("/monitoring/history")
 def monitoring_history_endpoint(limit: int = 50):
-    """All monitoring results (last `limit` entries)."""
-    with history_lock:
-        return {"results": monitoring_history[-limit:], "total": len(monitoring_history)}
+    """All monitoring results from PostgreSQL/logger (last `limit` entries)."""
+    history = telemetry_logger.get_recent_history(limit=limit)
+    if not history:
+        with history_lock:
+            history = monitoring_history[-limit:]
+    return {"results": history, "total": len(history)}
+
 
 
 @app.get("/monitoring/status")
@@ -371,6 +460,7 @@ def admin_reset():
         buffer_predictions.clear()
     with history_lock:
         monitoring_history.clear()
+    telemetry_logger.clear_history()
     return {"status": "reset", "message": "Buffer and history cleared."}
 
 
@@ -444,6 +534,8 @@ def trigger_retrain(background_tasks: BackgroundTasks):
             batch_labels_arr = np.array(buffer_labels, dtype=np.int32) if buffer_labels else None
         else:
             # Fallback to reference window subset to prevent crashing
+            if reference_scaled is None or reference_y is None:
+                raise ValueError("reference_scaled or reference_y is missing but required for fallback.")
             batch_feat = reference_scaled[:500]
             batch_labels_arr = reference_y[:500]
             
@@ -470,7 +562,10 @@ def admin_simulate(n_stable: int = 1000, n_drift: int = 1500):
     combined = pd.concat([stable_df, drift_df]).reset_index(drop=True)
 
     raw_features = combined[FEATURE_COLS].values.astype(np.float32)
-    all_scaled = np.clip(wm.scaler.transform(raw_features), -2.0, 2.0).astype(np.float32)
+    if getattr(wm, "scaler", None) is None:
+        all_scaled = raw_features
+    else:
+        all_scaled = np.clip(wm.scaler.transform(raw_features), -2.0, 2.0).astype(np.float32)
     all_labels = combined[LABEL_COL].values.astype(np.int32)
     all_preds = ml_model.predict_batch(raw_features)
 
@@ -536,7 +631,10 @@ def trigger_scenario(req: ScenarioRequest):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    scaled_X = np.clip(wm.scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
+    if getattr(wm, "scaler", None) is None:
+        scaled_X = raw_X
+    else:
+        scaled_X = np.clip(wm.scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
     preds = ml_model.predict_batch(raw_X)
 
     thread = threading.Thread(
@@ -555,14 +653,97 @@ def trigger_scenario(req: ScenarioRequest):
 
 
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# Member 3: Dual Operating Modes & Replay Endpoints
+# ─────────────────────────────────────────────
+
+class ModeRequest(BaseModel):
+    mode: str  # "demo" | "real_data"
+
+
+@app.post("/admin/mode")
+def set_operating_mode(req: ModeRequest):
+    """Toggle system operating mode between demo and real_data."""
+    if req.mode not in ("demo", "real_data"):
+        raise HTTPException(400, "Mode must be 'demo' or 'real_data'")
+    config.operating_mode = req.mode
+    admin_reset()
+    return {"status": "success", "operating_mode": config.operating_mode}
+
+
+@app.post("/admin/upload_dataset")
+async def upload_dataset(file: UploadFile = File(...)):
+    """Upload custom CSV dataset for Real Data Monitoring Mode."""
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(400, "Uploaded dataset must be a CSV file.")
+    os.makedirs(config.upload_dir, exist_ok=True)
+    save_path = os.path.join(config.upload_dir, file.filename or "upload.csv")
+    content = await file.read()
+    with open(save_path, "wb") as f:
+        f.write(content)
+    
+    global active_replay_engine
+    from simulator import CustomCSVReplayEngine
+    active_replay_engine = CustomCSVReplayEngine(save_path)
+    
+    admin_reset()
+    
+    return {"status": "success", "message": "Dataset uploaded successfully", "filename": file.filename, "path": save_path, "rows": len(active_replay_engine.df)}
+
+
+from simulator import CustomCSVReplayEngine
+
+active_replay_engine: Optional[CustomCSVReplayEngine] = None
+
+
+class ReplayRequest(BaseModel):
+    filename: Optional[str] = None
+    batch_size: int = 500
+
+
+@app.post("/admin/replay_step")
+def replay_step(req: ReplayRequest):
+    """Replay next batch from uploaded CSV dataset in Real Data Monitoring Mode."""
+    global active_replay_engine
+    if not orchestrator.is_ready:
+        raise HTTPException(400, "Orchestrator is not ready yet.")
+
+    if req.filename:
+        csv_path = os.path.join(config.upload_dir, req.filename)
+        if not os.path.exists(csv_path):
+            raise HTTPException(404, f"Dataset file '{req.filename}' not found in uploads directory.")
+        active_replay_engine = CustomCSVReplayEngine(csv_path)
+    elif active_replay_engine is None:
+        raise HTTPException(400, "No active dataset loaded for replay. Provide a filename.")
+
+    raw_X, labels, pred_ids = active_replay_engine.get_next_batch(req.batch_size)
+    if getattr(wm, "scaler", None) is None:
+        scaled_X = raw_X
+    else:
+        scaled_X = np.clip(wm.scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
+    preds = ml_model.predict_batch(raw_X)
+
+    # Run synchronously to avoid macOS thread deadlocks with PyTorch/SHAP
+    run_monitoring_cycle_background(scaled_X, labels, preds)
+
+    return {
+        "status": "success",
+        "samples_replayed": len(raw_X),
+        "message": f"Replayed batch of {len(raw_X)} samples. Monitoring cycle triggered.",
+    }
+
+
+# ─────────────────────────────────────────────
 # Model Registry & Lifecycle API
 # ─────────────────────────────────────────────
 
 @app.get("/registry/history")
 def registry_history(limit: int = 50):
     """Retrieve model version history with metrics and promotion statuses."""
+    if not hasattr(orchestrator, "registry"):
+        return {"status": "no_data", "history": [], "versions": [], "total": 0}
     history = orchestrator.registry.get_history(limit=limit)
-    return {"versions": history, "total": len(history)}
+    return {"status": "success", "history": history, "versions": history, "total": len(history)}
 
 
 @app.get("/registry/version/{tag}")
@@ -585,6 +766,8 @@ class RollbackRequest(BaseModel):
 @app.post("/registry/rollback")
 def registry_rollback(req: RollbackRequest):
     """Manually rollback to a previously promoted model version."""
+    if not hasattr(orchestrator, "registry"):
+        raise HTTPException(400, "Model registry not initialised.")
     try:
         result = orchestrator.registry.rollback_to_version(
             req.version_tag,
@@ -593,6 +776,7 @@ def registry_rollback(req: RollbackRequest):
         return {
             "status": "success",
             "message": f"Rolled back to version '{req.version_tag}'.",
+            "active_version": req.version_tag,
             "details": result,
         }
     except ValueError as e:
@@ -619,3 +803,4 @@ def registry_cooldown_status():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
