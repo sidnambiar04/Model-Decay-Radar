@@ -44,7 +44,8 @@ from uncertainty import EnsembleRNNUncertainty
 from drift_fusion import DriftSignalFusionEngine
 from root_cause import RootCauseEngine
 from model_registry import ModelRegistry
-from validation_gate import ValidationGateEngine
+from validation_gate import ValidationGateEngine, RetrainingCooldownManager
+from experiment_tracker import ExperimentTracker
 
 
 # ─────────────────────────────────────────────
@@ -167,6 +168,10 @@ class RadarOrchestrator:
         self.root_cause_engine = RootCauseEngine()
         self.registry = ModelRegistry()
         self.validation_gate = ValidationGateEngine()
+
+        # Experiment Tracker & Retraining Cooldown
+        self.experiment_tracker = ExperimentTracker()
+        self.cooldown_manager = RetrainingCooldownManager()
 
         # Validation State Tracking
         self.latest_validation_status = "none"
@@ -457,18 +462,28 @@ class RadarOrchestrator:
     def _selective_retrain(self, drift_batch: np.ndarray, drift_labels: Optional[np.ndarray] = None):
         """
         Selective retrain pipeline:
-          1. Trains candidate classifier using 80/20 reference-drift dataset with SMOTE.
-          2. Runs Validation Gate Engine comparing active model vs candidate model on held-out validation data.
-          3. If PROMOTED:
+          1. Checks cooldown rate limiter before proceeding.
+          2. Starts experiment tracker context.
+          3. Trains candidate classifier using 80/20 reference-drift dataset with SMOTE.
+          4. Runs Validation Gate Engine comparing active model vs candidate model on held-out validation data.
+          5. If PROMOTED:
              - Swaps active classifier in ProductionClassifier.
              - Logs new model version (v2, v3, etc.) in SQLite ModelRegistry.
+             - Logs training lineage (dataset composition, SMOTE stats).
              - Executes Reference Baseline Update Gate (fine-tunes VAE & resets error thresholds).
-          4. If REJECTED:
+          6. If REJECTED:
              - Retains previous active classifier.
              - Logs rejection & failure details in SQLite.
              - Baseline remains untouched.
+          7. Logs full experiment record with before/after metrics.
         """
         try:
+            # Cooldown Rate Limiter Check
+            can_retrain, cooldown_reason = self.cooldown_manager.can_retrain()
+            if not can_retrain:
+                print(f"[Orchestrator] Retraining BLOCKED by cooldown: {cooldown_reason}")
+                return
+
             if (
                 self.classifier is not None 
                 and self.scaler is not None 
@@ -476,14 +491,32 @@ class RadarOrchestrator:
                 and self.reference_raw_X is not None
                 and self.reference_raw_y is not None
             ):
+                # Start Experiment Tracking
+                active_model_name = self.classifier.active_model_name
+                exp_context = self.experiment_tracker.start_experiment(
+                    trigger_reason=f"MHS Critical at batch {self.batch_counter}",
+                    classifier_type=active_model_name,
+                    batch_id=self.batch_counter,
+                )
+
                 drift_raw_X = self.scaler.inverse_transform(drift_batch)
 
                 # 1. Apply SMOTE to drift data if imbalanced
+                from imbalance_handler import check_imbalance_ratio as _check_ratio
+                imb_ratio_before = _check_ratio(drift_labels)
+
                 training_drift_X, training_drift_y, smote_done, _ = apply_borderline_smote_if_needed(
                     drift_raw_X, drift_labels, imbalance_threshold=config.smote_imbalance_threshold
                 )
+                imb_ratio_after = _check_ratio(training_drift_y)
+
                 if smote_done:
                     print("[Orchestrator] SMOTE oversampling applied to drift dataset for candidate retraining.")
+
+                # Class balance stats for experiment logging
+                import pandas as pd
+                class_balance_before = {int(k): int(v) for k, v in pd.Series(drift_labels).value_counts().items()}
+                class_balance_after = {int(k): int(v) for k, v in pd.Series(training_drift_y).value_counts().items()}
 
                 # Mix historical reference data with drifted data according to retraining ratio (80/20)
                 ratio = config.retraining_ratio
@@ -495,10 +528,15 @@ class RadarOrchestrator:
 
                 combined_X = np.concatenate([ref_sub_X, training_drift_X], axis=0)
                 combined_y = np.concatenate([ref_sub_y, training_drift_y], axis=0)
-                
+
+                # Capture BEFORE metrics (active model performance on validation set)
+                val_n = min(1000, len(self.reference_raw_X))
+                val_X = self.reference_raw_X[-val_n:]
+                val_y = self.reference_raw_y[-val_n:]
+                before_metrics = self.validation_gate.evaluate_model_metrics(self.classifier, val_X, val_y)
+
                 # Train Candidate Classifier Model
                 from classifier import get_default_model
-                active_model_name = self.classifier.active_model_name
                 candidate_model = get_default_model(active_model_name)
                 
                 print(f"[Orchestrator] Training candidate model '{active_model_name}' on {len(combined_X)} samples...")
@@ -510,10 +548,6 @@ class RadarOrchestrator:
                     candidate_model.fit(combined_X, combined_y)
 
                 # 2. Run Validation Gate Engine on held-out reference validation subset
-                val_n = min(1000, len(self.reference_raw_X))
-                val_X = self.reference_raw_X[-val_n:]
-                val_y = self.reference_raw_y[-val_n:]
-
                 val_result = self.validation_gate.evaluate_candidate(
                     active_classifier=self.classifier,
                     candidate_classifier=candidate_model,
@@ -539,6 +573,18 @@ class RadarOrchestrator:
                         metrics=val_result.candidate_metrics,
                         promotion_status="promoted",
                         drift_event_id=self.batch_counter,
+                    )
+
+                    # Log Training Lineage
+                    self.registry.log_training_lineage(
+                        version_tag=next_tag,
+                        reference_samples=n_ref_samples,
+                        drift_samples=len(training_drift_X),
+                        smote_applied=smote_done,
+                        imbalance_ratio_before=imb_ratio_before,
+                        imbalance_ratio_after=imb_ratio_after,
+                        drift_event_batch_id=self.batch_counter,
+                        notes=f"Retrain triggered by Critical MHS at batch {self.batch_counter}",
                     )
 
                     # 3. REFERENCE WINDOW UPDATE GATE (ONLY POST-PROMOTION)
@@ -569,6 +615,27 @@ class RadarOrchestrator:
                         drift_event_id=self.batch_counter,
                         rejection_reason=val_result.rejection_reason,
                     )
+
+                # Log Experiment Record (always, whether promoted or rejected)
+                promotion_decision = "promoted" if val_result.is_promoted else "rejected"
+                self.experiment_tracker.log_experiment(
+                    context=exp_context,
+                    sample_count=len(combined_X),
+                    reference_samples=n_ref_samples,
+                    drift_samples=len(training_drift_X),
+                    smote_applied=smote_done,
+                    class_balance_before=class_balance_before,
+                    class_balance_after=class_balance_after,
+                    before_metrics=before_metrics,
+                    after_metrics=val_result.candidate_metrics,
+                    promotion_decision=promotion_decision,
+                    rejection_reason=val_result.rejection_reason,
+                    version_tag=next_tag if val_result.is_promoted else None,
+                )
+
+                # Record retrain in cooldown manager
+                self.cooldown_manager.record_retrain()
+
             else:
                 print("[Orchestrator] Skipping candidate retraining due to missing labels/scalers/reference raw data.")
         except Exception as e:

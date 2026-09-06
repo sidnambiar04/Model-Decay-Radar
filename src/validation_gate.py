@@ -128,3 +128,73 @@ class ValidationGateEngine:
 
         return val_result
 
+
+class RetrainingCooldownManager:
+    """
+    Rate limiter preventing excessive retraining cycles.
+    Enforces a minimum cooldown period between retrains and
+    a maximum number of retrains per hour.
+    """
+
+    def __init__(
+        self,
+        cooldown_seconds: Optional[int] = None,
+        max_per_hour: Optional[int] = None,
+    ):
+        self.cooldown_seconds = cooldown_seconds if cooldown_seconds is not None else getattr(config, "retrain_cooldown_seconds", 60)
+        self.max_per_hour = max_per_hour if max_per_hour is not None else getattr(config, "max_retrains_per_hour", 5)
+        self._retrain_timestamps: list = []
+        self._last_retrain_time: float = 0.0
+
+    def can_retrain(self) -> tuple:
+        """
+        Check if retraining is allowed.
+        Returns (allowed: bool, reason: str).
+        """
+        import time
+        now = time.time()
+
+        # Check cooldown period
+        if self._last_retrain_time > 0:
+            elapsed = now - self._last_retrain_time
+            if elapsed < self.cooldown_seconds:
+                remaining = self.cooldown_seconds - elapsed
+                return (False, f"Cooldown active: {remaining:.0f}s remaining (min interval: {self.cooldown_seconds}s).")
+
+        # Check hourly rate limit
+        one_hour_ago = now - 3600
+        self._retrain_timestamps = [t for t in self._retrain_timestamps if t > one_hour_ago]
+        if len(self._retrain_timestamps) >= self.max_per_hour:
+            return (False, f"Hourly rate limit reached: {len(self._retrain_timestamps)}/{self.max_per_hour} retrains in the last hour.")
+
+        return (True, "Retraining allowed.")
+
+    def record_retrain(self):
+        """Record that a retraining cycle just completed."""
+        import time
+        now = time.time()
+        self._last_retrain_time = now
+        self._retrain_timestamps.append(now)
+
+    def get_status(self) -> dict:
+        """Return current cooldown/rate status for monitoring."""
+        import time
+        now = time.time()
+        one_hour_ago = now - 3600
+        recent = [t for t in self._retrain_timestamps if t > one_hour_ago]
+
+        cooldown_remaining = 0.0
+        if self._last_retrain_time > 0:
+            elapsed = now - self._last_retrain_time
+            if elapsed < self.cooldown_seconds:
+                cooldown_remaining = self.cooldown_seconds - elapsed
+
+        return {
+            "cooldown_remaining_seconds": round(cooldown_remaining, 1),
+            "retrains_last_hour": len(recent),
+            "max_per_hour": self.max_per_hour,
+            "cooldown_seconds": self.cooldown_seconds,
+            "last_retrain_timestamp": self._last_retrain_time,
+        }
+
+

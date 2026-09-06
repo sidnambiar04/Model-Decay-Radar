@@ -56,6 +56,13 @@ class RadarConfig:
     validation_min_accuracy: float = 0.80
     db_path: str = "models/model_registry.db"
 
+    # Retraining Cooldown & Rate Limiter
+    retrain_cooldown_seconds: int = 60
+    max_retrains_per_hour: int = 5
+
+    # Experiment Tracker
+    experiment_db_path: str = "logs/experiments.db"
+
     def update(self, **kwargs: Any) -> Dict[str, Any]:
         """Dynamically update configuration values."""
         updated = {}
@@ -80,6 +87,9 @@ class RadarConfig:
             "validation_f1_threshold_margin": self.validation_f1_threshold_margin,
             "validation_min_accuracy": self.validation_min_accuracy,
             "db_path": self.db_path,
+            "retrain_cooldown_seconds": self.retrain_cooldown_seconds,
+            "max_retrains_per_hour": self.max_retrains_per_hour,
+            "experiment_db_path": self.experiment_db_path,
             "active_classifier": self.active_classifier,
             "mhs_weights": self.mhs_weights,
             "mhs_thresholds": self.mhs_thresholds,

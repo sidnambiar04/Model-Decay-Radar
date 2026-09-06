@@ -51,6 +51,25 @@ class ModelRegistry:
                 print("[ModelRegistry] Auto-migrating schema: Adding 'artifact_path' column to model_versions table.")
                 cursor.execute("ALTER TABLE model_versions ADD COLUMN artifact_path TEXT")
                 conn.commit()
+
+            # Training lineage table — tracks dataset composition for each version
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS training_lineage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    version_tag TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    reference_samples INTEGER,
+                    drift_samples INTEGER,
+                    total_samples INTEGER,
+                    smote_applied INTEGER DEFAULT 0,
+                    imbalance_ratio_before REAL,
+                    imbalance_ratio_after REAL,
+                    training_duration_ms REAL,
+                    drift_event_batch_id INTEGER,
+                    notes TEXT
+                )
+            """)
+            conn.commit()
         finally:
             conn.close()
 
@@ -214,4 +233,89 @@ class ModelRegistry:
             rejection_reason=f"Manual rollback restored to version {target_version_tag}.",
             artifact_path=artifact_path,
         )
+
+    def log_training_lineage(
+        self,
+        version_tag: str,
+        reference_samples: int,
+        drift_samples: int,
+        smote_applied: bool = False,
+        imbalance_ratio_before: float = 1.0,
+        imbalance_ratio_after: float = 1.0,
+        training_duration_ms: float = 0.0,
+        drift_event_batch_id: Optional[int] = None,
+        notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Log training data lineage for a model version."""
+        ts = time.time()
+        total = reference_samples + drift_samples
+
+        os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO training_lineage (
+                    version_tag, timestamp, reference_samples, drift_samples,
+                    total_samples, smote_applied, imbalance_ratio_before,
+                    imbalance_ratio_after, training_duration_ms,
+                    drift_event_batch_id, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                version_tag, ts, reference_samples, drift_samples,
+                total, int(smote_applied), imbalance_ratio_before,
+                imbalance_ratio_after, training_duration_ms,
+                drift_event_batch_id, notes,
+            ))
+            conn.commit()
+        finally:
+            conn.close()
+
+        return {
+            "version_tag": version_tag,
+            "timestamp": ts,
+            "reference_samples": reference_samples,
+            "drift_samples": drift_samples,
+            "total_samples": total,
+            "smote_applied": smote_applied,
+            "imbalance_ratio_before": imbalance_ratio_before,
+            "imbalance_ratio_after": imbalance_ratio_after,
+            "training_duration_ms": training_duration_ms,
+            "drift_event_batch_id": drift_event_batch_id,
+            "notes": notes,
+        }
+
+    def get_training_lineage(self, version_tag: str) -> Optional[Dict[str, Any]]:
+        """Retrieve training lineage metadata for a specific model version."""
+        os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT version_tag, timestamp, reference_samples, drift_samples,
+                       total_samples, smote_applied, imbalance_ratio_before,
+                       imbalance_ratio_after, training_duration_ms,
+                       drift_event_batch_id, notes
+                FROM training_lineage
+                WHERE version_tag = ?
+                ORDER BY id DESC LIMIT 1
+            """, (version_tag,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "version_tag": row[0],
+                "timestamp": row[1],
+                "reference_samples": row[2],
+                "drift_samples": row[3],
+                "total_samples": row[4],
+                "smote_applied": bool(row[5]),
+                "imbalance_ratio_before": row[6],
+                "imbalance_ratio_after": row[7],
+                "training_duration_ms": row[8],
+                "drift_event_batch_id": row[9],
+                "notes": row[10],
+            }
+        finally:
+            conn.close()
 
