@@ -19,3 +19,17 @@ def apply_borderline_smote_if_needed(X, y, imbalance_threshold=0.2, k_neighbors=
     smote = BorderlineSMOTE(k_neighbors=safe_k, random_state=random_state)
     X_res, y_res = smote.fit_resample(X, y)
     return X_res, y_res, True, ratio_before
+
+def get_imbalance_metadata(X, y, imbalance_threshold=0.2):
+    """Return detailed class imbalance metadata audit dictionary."""
+    counts = pd.Series(y).value_counts().to_dict()
+    ratio = check_imbalance_ratio(y)
+    is_imbalanced = bool(ratio < imbalance_threshold)
+    return {
+        "sample_count": len(y),
+        "class_distribution": {int(k): int(v) for k, v in counts.items()},
+        "imbalance_ratio": round(ratio, 4),
+        "is_imbalanced": is_imbalanced,
+        "threshold": imbalance_threshold,
+    }
+

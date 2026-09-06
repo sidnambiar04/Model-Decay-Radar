@@ -18,6 +18,8 @@ Discovers and executes unit and integration test suites for all stages:
   - test_stage14_simulator.py
   - test_stage15_modes.py
   - test_stage16_frontend_api.py
+  - test_stage17_model_lifecycle_enhanced.py
+  - test_stage18_lifecycle_advanced.py
 """
 
 import sys, os
@@ -55,6 +57,8 @@ def run_master_test_suite():
         "test_stage14_simulator",
         "test_stage15_modes",
         "test_stage16_frontend_api",
+        "test_stage17_model_lifecycle_enhanced",
+        "test_stage18_lifecycle_advanced",
     ]
 
     for mod in test_modules:

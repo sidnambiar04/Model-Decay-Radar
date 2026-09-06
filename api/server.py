@@ -554,6 +554,68 @@ def trigger_scenario(req: ScenarioRequest):
     }
 
 
+# ─────────────────────────────────────────────
+# Model Registry & Lifecycle API
+# ─────────────────────────────────────────────
+
+@app.get("/registry/history")
+def registry_history(limit: int = 50):
+    """Retrieve model version history with metrics and promotion statuses."""
+    history = orchestrator.registry.get_history(limit=limit)
+    return {"versions": history, "total": len(history)}
+
+
+@app.get("/registry/version/{tag}")
+def registry_version_detail(tag: str):
+    """Retrieve detailed metadata for a specific model version tag."""
+    details = orchestrator.registry.get_version_details(tag)
+    if not details:
+        raise HTTPException(404, f"Version tag '{tag}' not found in registry.")
+    lineage = orchestrator.registry.get_training_lineage(tag)
+    return {
+        "version": details,
+        "training_lineage": lineage,
+    }
+
+
+class RollbackRequest(BaseModel):
+    version_tag: str
+
+
+@app.post("/registry/rollback")
+def registry_rollback(req: RollbackRequest):
+    """Manually rollback to a previously promoted model version."""
+    try:
+        result = orchestrator.registry.rollback_to_version(
+            req.version_tag,
+            classifier_engine=ml_model,
+        )
+        return {
+            "status": "success",
+            "message": f"Rolled back to version '{req.version_tag}'.",
+            "details": result,
+        }
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/registry/experiments")
+def registry_experiments(limit: int = 50):
+    """Retrieve experiment tracker history for retraining events."""
+    history = orchestrator.experiment_tracker.get_experiment_history(limit=limit)
+    summary = orchestrator.experiment_tracker.get_experiment_summary()
+    return {
+        "experiments": history,
+        "summary": summary,
+    }
+
+
+@app.get("/registry/cooldown")
+def registry_cooldown_status():
+    """Check current retraining cooldown and rate limiter status."""
+    return orchestrator.cooldown_manager.get_status()
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
