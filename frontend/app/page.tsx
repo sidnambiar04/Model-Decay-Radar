@@ -2,6 +2,7 @@
 
 import { useMonitoring, MonitoringResult } from "./hooks/useMonitoring";
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import {
   Activity,
   ShieldAlert,
@@ -565,7 +566,7 @@ export default function Dashboard() {
           <nav className="hidden md:flex gap-6 text-sm font-medium text-zinc-400">
             <span className="text-white">Dashboard</span>
             <span className="hover:text-white cursor-pointer transition-colors" onClick={handleOpenRegistry}>Model Registry</span>
-            <span className="hover:text-white cursor-pointer transition-colors">Documentation</span>
+            <Link href="/docs" className="hover:text-white transition-colors">Documentation</Link>
           </nav>
         </div>
 
