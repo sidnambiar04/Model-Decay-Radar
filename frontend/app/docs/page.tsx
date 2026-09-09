@@ -78,7 +78,7 @@ export default function DocsPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col selection:bg-rose-500/30 selection:text-rose-200">
-      
+
       {/* Sleek Navigation Bar */}
       <header className="border-b border-white/5 bg-black/40 backdrop-blur-xl sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-6">
@@ -99,14 +99,14 @@ export default function DocsPage() {
           <Link href="/dashboard" className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors">
             <ArrowLeft className="w-4 h-4" /> Back to Dashboard
           </Link>
-          <a href="https://github.com/vijay/Model-Decay-Radar" target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors">
+          <a href="https://github.com/sidnambiar04/Model-Decay-Radar" target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors">
             <GitBranch className="w-4 h-4" /> GitHub
           </a>
         </div>
       </header>
 
       <div className="flex-1 flex max-w-[1400px] w-full mx-auto relative">
-        
+
         {/* Left Sidebar */}
         <aside className="hidden md:block w-72 border-r border-white/5 bg-black/20 p-8 sticky top-[73px] h-[calc(100vh-73px)] overflow-y-auto">
           {navItems.map((group, i) => (
@@ -117,11 +117,10 @@ export default function DocsPage() {
                   <li key={item.id}>
                     <button
                       onClick={() => scrollTo(item.id)}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all duration-200 ${
-                        activeSection === item.id 
-                          ? "bg-gradient-to-r from-rose-500/10 to-transparent text-rose-400 font-semibold border-l-2 border-rose-500" 
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all duration-200 ${activeSection === item.id
+                          ? "bg-gradient-to-r from-rose-500/10 to-transparent text-rose-400 font-semibold border-l-2 border-rose-500"
                           : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border-l-2 border-transparent"
-                      }`}
+                        }`}
                     >
                       {item.icon}
                       {item.title}
@@ -136,7 +135,7 @@ export default function DocsPage() {
         {/* Main Content Area */}
         <main className="flex-1 p-8 md:p-12 lg:p-20 overflow-y-auto max-w-5xl">
           <div className="space-y-32 pb-32">
-            
+
             {/* Introduction */}
             <section id="introduction" className="scroll-mt-32 space-y-8">
               <div>
@@ -165,7 +164,7 @@ export default function DocsPage() {
             {/* Core Features */}
             <section id="features" className="scroll-mt-32 space-y-8">
               <h2 className="text-3xl font-bold tracking-tight text-white">Core Features</h2>
-              
+
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="glass-card p-8 rounded-2xl border border-zinc-800 hover:border-zinc-700 transition-colors relative overflow-hidden group">
                   <div className="absolute inset-0 bg-gradient-to-br from-rose-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -208,17 +207,17 @@ export default function DocsPage() {
             {/* Quickstart */}
             <section id="quickstart" className="scroll-mt-32 space-y-8">
               <h2 className="text-3xl font-bold tracking-tight text-white">Quickstart</h2>
-              
+
               <div className="grid gap-6">
                 <div className="glass-card bg-[#0a0d10] p-6 rounded-2xl border border-zinc-800">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-bold text-white">1. Install Dependencies</h3>
                   </div>
                   <pre className="text-sm font-mono text-zinc-400 leading-loose">
-                    <span className="text-zinc-600"># Python Backend</span><br/>
-                    <span className="text-rose-400">pip</span> install -r requirements.txt<br/><br/>
-                    <span className="text-zinc-600"># Next.js Frontend</span><br/>
-                    <span className="text-rose-400">cd</span> frontend<br/>
+                    <span className="text-zinc-600"># Python Backend</span><br />
+                    <span className="text-rose-400">pip</span> install -r requirements.txt<br /><br />
+                    <span className="text-zinc-600"># Next.js Frontend</span><br />
+                    <span className="text-rose-400">cd</span> frontend<br />
                     <span className="text-rose-400">npm</span> install
                   </pre>
                 </div>
@@ -228,7 +227,7 @@ export default function DocsPage() {
                     <h3 className="text-lg font-bold text-white">2. Launch Services</h3>
                   </div>
                   <pre className="text-sm font-mono text-zinc-400 leading-loose">
-                    <span className="text-zinc-600"># Start both servers (FastAPI + Next.js)</span><br/>
+                    <span className="text-zinc-600"># Start both servers (FastAPI + Next.js)</span><br />
                     <span className="text-rose-400">bash</span> run.sh
                   </pre>
                 </div>
@@ -238,7 +237,7 @@ export default function DocsPage() {
             {/* ML Models & Algorithms */}
             <section id="models" className="scroll-mt-32 space-y-8">
               <h2 className="text-3xl font-bold tracking-tight text-white mb-8">ML Models & Algorithms</h2>
-              
+
               <div className="space-y-8">
                 {/* VAE */}
                 <div className="glass-card p-8 rounded-2xl border border-zinc-800 hover:border-zinc-700 transition-all shadow-xl">
@@ -301,10 +300,10 @@ export default function DocsPage() {
               <p className="text-zinc-300 leading-relaxed mb-6">
                 The platform is separated into a lightweight prediction API and a heavy background orchestrator. Data is buffered until a window limit is reached, then piped through a multi-stage monitoring engine.
               </p>
-              
+
               <div className="glass-card bg-[#0a0d10] p-8 rounded-2xl border border-zinc-800 overflow-x-auto shadow-2xl">
                 <pre className="text-xs sm:text-sm font-mono text-emerald-400/90 leading-relaxed">
-{`┌─────────────┐     POST /predict      ┌─────────────────────────────────────────┐
+                  {`┌─────────────┐     POST /predict      ┌─────────────────────────────────────────┐
 │ Client/IoT  │ ─────────────────────► │ FastAPI Server (port 8000)              │
 │ Simulation  │                        │  • Active Production Classifier (RF/GB) │
 │ Engine      │                        │  • Raw Sample Buffer (500 samples)      │
@@ -335,7 +334,7 @@ export default function DocsPage() {
             {/* 7-Layer Pipeline */}
             <section id="pipeline" className="scroll-mt-32 space-y-8">
               <h2 className="text-3xl font-bold tracking-tight text-white mb-6">The 7-Layer Monitoring Pipeline</h2>
-              
+
               <div className="relative border-l border-zinc-800 ml-4 md:ml-6 space-y-12 pb-8">
                 {[
                   { title: "Data Ingestion", desc: "Incoming features are scaled with a MinMaxScaler fit on the reference window. Samples are buffered until the window is full, triggering the background cycle." },
@@ -365,7 +364,7 @@ export default function DocsPage() {
               <p className="text-zinc-300 leading-relaxed mb-4">
                 The project ships with a synthetic dataset modeled after SWaT (<code className="bg-zinc-800 px-2 py-1 rounded text-rose-400 font-mono text-sm">data/synthetic_swat.csv</code>), containing 38,000 rows across 51 sensor features.
               </p>
-              
+
               <div className="overflow-hidden rounded-xl border border-zinc-800 shadow-xl">
                 <table className="w-full text-left text-sm text-zinc-300">
                   <thead className="bg-zinc-900/80 backdrop-blur border-b border-zinc-800 text-zinc-400">
