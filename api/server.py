@@ -307,7 +307,7 @@ def predict(request: PredictRequest, background_tasks: BackgroundTasks):
         raise HTTPException(400, "Feature format invalid.")
 
     # Scale using reference-window scaler
-    if getattr(wm, "scaler", None) is None:
+    if wm.scaler is None:
         scaled_features = raw_features
     else:
         scaled_features = wm.scaler.transform(raw_features.reshape(1, -1))[0] # type: ignore
@@ -562,7 +562,7 @@ def admin_simulate(n_stable: int = 1000, n_drift: int = 1500):
     combined = pd.concat([stable_df, drift_df]).reset_index(drop=True)
 
     raw_features = combined[FEATURE_COLS].values.astype(np.float32)
-    if getattr(wm, "scaler", None) is None:
+    if wm.scaler is None:
         all_scaled = raw_features
     else:
         all_scaled = np.clip(wm.scaler.transform(raw_features), -2.0, 2.0).astype(np.float32)
@@ -631,7 +631,7 @@ def trigger_scenario(req: ScenarioRequest):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    if getattr(wm, "scaler", None) is None:
+    if wm.scaler is None:
         scaled_X = raw_X
     else:
         scaled_X = np.clip(wm.scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
