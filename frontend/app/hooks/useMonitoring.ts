@@ -273,9 +273,13 @@ export function useMonitoring() {
         method: "POST",
         body: formData,
       });
-      if (!res.ok) throw new Error("Failed to upload dataset");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(errData.detail || "Failed to upload dataset");
+      }
       const data = await res.json();
-      return `✅ ${data.message} (${data.rows} rows)`;
+      await fetchData();
+      return `✅ ${data.message}`;
     } catch (err: any) {
       return `❌ Upload failed: ${err.message}`;
     }
@@ -288,11 +292,14 @@ export function useMonitoring() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ batch_size: batchSize }),
       });
-      if (!res.ok) throw new Error("Failed to process next batch");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(errData.detail || "Failed to process next batch");
+      }
       const data = await res.json();
       const msg = `✅ ${data.message}`;
       setSimulateMessage(msg);
-      setTimeout(() => fetchData(), 1000);
+      setTimeout(() => fetchData(), 500);
       return msg;
     } catch (err: any) {
       const msg = `❌ Replay failed: ${err.message}`;

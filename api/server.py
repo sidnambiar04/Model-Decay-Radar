@@ -671,9 +671,19 @@ def set_operating_mode(req: ModeRequest):
     return {"status": "success", "operating_mode": config.operating_mode}
 
 
+from simulator import CustomCSVReplayEngine
+from sklearn.preprocessing import StandardScaler
+
+active_replay_engine: Optional[CustomCSVReplayEngine] = None
+
+
 @app.post("/admin/upload_dataset")
 async def upload_dataset(file: UploadFile = File(...)):
-    """Upload custom CSV dataset for Real Data Monitoring Mode."""
+    """Upload custom CSV dataset for Real Data Monitoring Mode.
+    Supports SWaT replay sets or arbitrary new datasets from Kaggle.
+    """
+    global active_replay_engine, FEATURE_COLS, reference_X, reference_y, reference_scaled, wm, ml_model, orchestrator
+
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(400, "Uploaded dataset must be a CSV file.")
     os.makedirs(config.upload_dir, exist_ok=True)
@@ -681,19 +691,94 @@ async def upload_dataset(file: UploadFile = File(...)):
     content = await file.read()
     with open(save_path, "wb") as f:
         f.write(content)
-    
-    global active_replay_engine
-    from simulator import CustomCSVReplayEngine
-    active_replay_engine = CustomCSVReplayEngine(save_path)
-    
-    admin_reset()
-    
-    return {"status": "success", "message": "Dataset uploaded successfully", "filename": file.filename, "path": save_path, "rows": len(active_replay_engine.df)}
 
+    try:
+        engine = CustomCSVReplayEngine(save_path)
+    except Exception as e:
+        raise HTTPException(400, f"Error processing CSV dataset: {str(e)}")
 
-from simulator import CustomCSVReplayEngine
+    total_samples = len(engine.raw_X)
+    if total_samples < 50:
+        raise HTTPException(400, f"Uploaded dataset has too few valid samples ({total_samples}). Minimum 50 rows required.")
 
-active_replay_engine: Optional[CustomCSVReplayEngine] = None
+    if len(engine.feature_cols) < 1:
+        raise HTTPException(400, "No numeric feature columns found in dataset.")
+
+    # Check if uploaded dataset schema matches the active model's feature set
+    is_compatible = (engine.feature_cols == FEATURE_COLS)
+
+    if is_compatible:
+        active_replay_engine = engine
+        admin_reset()
+        return {
+            "status": "success",
+            "message": f"Test dataset '{file.filename}' uploaded successfully ({total_samples} samples, {len(engine.feature_cols)} features). Ready for batch replay against active model.",
+            "filename": file.filename,
+            "path": save_path,
+            "rows": total_samples,
+            "features": len(engine.feature_cols),
+            "mode": "stream_replay",
+        }
+    else:
+        # Schema differs: automatically adapt Radar baseline to the new dataset schema
+        try:
+            print(f"[Server] Adapting Radar to new dataset '{file.filename}' with {len(engine.feature_cols)} features...", flush=True)
+            # Use first 25% (or between 200 and 3000 rows) as reference baseline
+            ref_size = min(max(200, int(total_samples * 0.25)), 3000)
+            if total_samples <= 600:
+                ref_size = max(50, total_samples // 2)
+
+            ref_X = engine.raw_X[:ref_size]
+            if engine.labels is not None:
+                ref_y = engine.labels[:ref_size]
+            else:
+                ref_y = np.zeros(ref_size, dtype=np.int32)
+
+            new_scaler = StandardScaler().fit(ref_X)
+            ref_scaled = np.clip(new_scaler.transform(ref_X), -2.0, 2.0).astype(np.float32)
+
+            FEATURE_COLS = list(engine.feature_cols)
+            reference_X = ref_X
+            reference_y = ref_y
+            reference_scaled = ref_scaled
+            wm.scaler = new_scaler
+
+            # Fit ProductionClassifier on new reference baseline
+            ml_model = ProductionClassifier()
+            ml_model.fit(reference_X, reference_y, model_name=config.active_classifier)
+
+            # Re-initialize orchestrator with new feature set
+            orchestrator = RadarOrchestrator(feature_names=FEATURE_COLS)
+            orchestrator.setup(
+                reference_scaled,
+                reference_raw_X=reference_X,
+                reference_raw_y=reference_y,
+                classifier=ml_model,
+                scaler=new_scaler,
+                ae_epochs=5,
+                rnn_epochs=2,
+            )
+
+            # Set replay engine to stream from remaining data
+            engine.current_idx = ref_size
+            active_replay_engine = engine
+
+            admin_reset()
+
+            stream_samples = total_samples - ref_size
+            feat_preview = ", ".join(engine.feature_cols[:4]) + ("..." if len(engine.feature_cols) > 4 else "")
+            return {
+                "status": "success",
+                "message": f"New dataset calibrated! Baseline trained on {ref_size} reference samples across {len(engine.feature_cols)} features ({feat_preview}). {stream_samples} samples ready for batch replay.",
+                "filename": file.filename,
+                "path": save_path,
+                "rows": total_samples,
+                "features": len(engine.feature_cols),
+                "mode": "new_baseline",
+            }
+        except Exception as e:
+            traceback.print_exc()
+            raise HTTPException(500, f"Failed to adapt Radar to uploaded dataset: {str(e)}")
 
 
 class ReplayRequest(BaseModel):
@@ -712,24 +797,52 @@ def replay_step(req: ReplayRequest):
         csv_path = os.path.join(config.upload_dir, req.filename)
         if not os.path.exists(csv_path):
             raise HTTPException(404, f"Dataset file '{req.filename}' not found in uploads directory.")
-        active_replay_engine = CustomCSVReplayEngine(csv_path)
+        if active_replay_engine is None or getattr(active_replay_engine, "csv_filepath", None) != csv_path:
+            active_replay_engine = CustomCSVReplayEngine(csv_path)
     elif active_replay_engine is None:
-        raise HTTPException(400, "No active dataset loaded for replay. Provide a filename.")
+        # Check if any uploaded files exist
+        if os.path.exists(config.upload_dir):
+            files = [f for f in os.listdir(config.upload_dir) if f.endswith(".csv")]
+            if files:
+                latest_file = os.path.join(config.upload_dir, files[-1])
+                active_replay_engine = CustomCSVReplayEngine(latest_file)
+        if active_replay_engine is None:
+            raise HTTPException(400, "No active dataset loaded for replay. Please upload a CSV dataset first.")
 
-    raw_X, labels, pred_ids = active_replay_engine.get_next_batch(req.batch_size)
+    try:
+        raw_X, labels, pred_ids = active_replay_engine.get_next_batch(req.batch_size)
+    except Exception as e:
+        raise HTTPException(400, f"Failed to read next batch: {str(e)}")
+
+    if len(raw_X) == 0:
+        raise HTTPException(400, "No samples returned in batch.")
+
     if getattr(wm, "scaler", None) is None:
         scaled_X = raw_X
     else:
-        scaled_X = np.clip(wm.scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
-    preds = ml_model.predict_batch(raw_X)
+        try:
+            scaled_X = np.clip(wm.scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
+        except Exception as e:
+            raise HTTPException(
+                400,
+                f"Feature dimension mismatch (got {raw_X.shape[1]} features, expected {len(FEATURE_COLS)}). "
+                f"Please re-upload this CSV to re-calibrate the Radar baseline."
+            )
 
-    # Run synchronously to avoid macOS thread deadlocks with PyTorch/SHAP
+    try:
+        preds = ml_model.predict_batch(raw_X)
+    except Exception as e:
+        raise HTTPException(400, f"Model prediction error: {str(e)}")
+
+    # Run synchronously to avoid macOS/Windows thread deadlocks with PyTorch/SHAP
     run_monitoring_cycle_background(scaled_X, labels, preds)
 
     return {
         "status": "success",
         "samples_replayed": len(raw_X),
-        "message": f"Replayed batch of {len(raw_X)} samples. Monitoring cycle triggered.",
+        "current_index": active_replay_engine.current_idx,
+        "total_rows": len(active_replay_engine.raw_X),
+        "message": f"Replayed batch of {len(raw_X)} samples (position {active_replay_engine.current_idx}/{len(active_replay_engine.raw_X)}). Monitoring cycle completed.",
     }
 
 

@@ -205,9 +205,10 @@ class RadarOrchestrator:
         self.scaler = scaler
 
         _progress("training_ae")
-        print("[Orchestrator] Training Autoencoder on reference window...", flush=True)
+        ae_latent = min(8, max(2, self.input_dim // 2)) if self.input_dim > 2 else max(1, self.input_dim)
+        ae_hidden = max(16, min(32, max(self.input_dim * 2, 16)))
         self.ae_model = AutoencoderDriftDetector(
-            input_dim=self.input_dim, latent_dim=8, hidden_dim=32
+            input_dim=self.input_dim, latent_dim=ae_latent, hidden_dim=ae_hidden
         )
         train_autoencoder(
             self.ae_model, reference_scaled,

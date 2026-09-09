@@ -120,35 +120,114 @@ class ScenarioSimulator:
 
 
 class CustomCSVReplayEngine:
-    """Batch iterator for custom user-uploaded CSV files in Real Data Monitoring Mode."""
+    """
+    Intelligent batch iterator for custom user-uploaded CSV files in Real Data Monitoring Mode.
+    Automatically handles arbitrary Kaggle datasets and SWaT test sets:
+    - Extracts labels from string/binary/multi-class columns (e.g. 'Normal'/'Attack', 'In'/'Out', 'target', 'class')
+    - Parses timestamps/dates into useful numeric features (hour, dayofweek, minute)
+    - Drops high-cardinality string identifiers (e.g. IDs, UUIDs)
+    - Replaces missing values/NaNs with column medians
+    - Converts features to pure float32 arrays
+    """
     def __init__(self, csv_filepath: str):
         self.csv_filepath = csv_filepath
         if not os.path.exists(csv_filepath):
             raise FileNotFoundError(f"Custom dataset not found at: {csv_filepath}")
         self.df = pd.read_csv(csv_filepath)
-        self.feature_cols = [c for c in self.df.columns if c not in ("Label", "label", "target", "Target", "_window", "prediction_id")]
         self.current_idx = 0
+        self._process_dataset()
+
+    def _process_dataset(self) -> None:
+        clean_df = self.df.copy()
+
+        # 1. Identify label column
+        label_col = None
+        priority_labels = [
+            "label", "target", "class", "normal/attack", "attack",
+            "out/in", "y", "status", "is_fraud", "outcome", "anomaly"
+        ]
+        for pl in priority_labels:
+            for c in clean_df.columns:
+                if c.lower().strip() == pl:
+                    label_col = c
+                    break
+            if label_col:
+                break
+
+        if not label_col:
+            for c in clean_df.columns:
+                c_low = c.lower().strip()
+                if any(k in c_low for k in ["label", "target", "attack", "anomaly"]):
+                    label_col = c
+                    break
+
+        labels: Optional[np.ndarray] = None
+        if label_col:
+            raw_l = clean_df[label_col].astype(str).str.strip()
+            normal_words = {"normal", "in", "0", "false", "no", "benign", "good", "healthy", "0.0"}
+            unique_vals = list(raw_l.unique())
+            if len(unique_vals) == 2 and any(v.lower() in normal_words for v in unique_vals):
+                norm_val = [v for v in unique_vals if v.lower() in normal_words][0]
+                labels = (raw_l != norm_val).astype(np.int32).values
+            else:
+                codes, _ = pd.factorize(clean_df[label_col])
+                labels = codes.astype(np.int32)
+            clean_df = clean_df.drop(columns=[label_col])
+
+        # 2. Extract date/time features and drop pure identifier columns
+        cols_to_drop = []
+        for c in clean_df.columns:
+            c_low = c.lower().strip()
+            if c_low in ["_window", "prediction_id", "id"] or c_low.endswith("/id") or c_low.startswith("id_") or c_low.endswith("_id"):
+                cols_to_drop.append(c)
+                continue
+            if any(d in c_low for d in ["date", "time", "timestamp"]):
+                try:
+                    dt_series = pd.to_datetime(clean_df[c], errors="coerce")
+                    if dt_series.notna().sum() > 0.5 * len(clean_df):
+                        clean_df[f"{c}_hour"] = dt_series.dt.hour.fillna(0).astype(float)
+                        clean_df[f"{c}_dayofweek"] = dt_series.dt.dayofweek.fillna(0).astype(float)
+                        clean_df[f"{c}_minute"] = dt_series.dt.minute.fillna(0).astype(float)
+                except Exception:
+                    pass
+                cols_to_drop.append(c)
+
+        clean_df = clean_df.drop(columns=cols_to_drop, errors="ignore")
+
+        # 3. Numeric conversion for remaining feature columns
+        feature_cols = []
+        for c in clean_df.columns:
+            num_s = pd.to_numeric(clean_df[c], errors="coerce")
+            if num_s.notna().sum() > 0.5 * len(clean_df):
+                clean_df[c] = num_s.fillna(num_s.median() if num_s.notna().any() else 0.0)
+                feature_cols.append(c)
+
+        if not feature_cols:
+            raise ValueError("No valid numeric feature columns found in uploaded dataset.")
+
+        self.feature_cols = feature_cols
+        self.raw_X = clean_df[self.feature_cols].values.astype(np.float32)
+        self.labels = labels
 
     def has_next_batch(self) -> bool:
-
-        return self.current_idx < len(self.df)
+        return self.current_idx < len(self.raw_X)
 
     def get_next_batch(self, batch_size: int = 500) -> Tuple[np.ndarray, Optional[np.ndarray], List[str]]:
-        if not self.has_next_batch():
-            self.current_idx = 0  # Loop around if reached end
+        total_rows = len(self.raw_X)
+        if total_rows == 0:
+            raise ValueError("Dataset contains 0 rows.")
+
+        if self.current_idx >= total_rows:
+            self.current_idx = 0  # Loop around
+
+        end_idx = min(self.current_idx + batch_size, total_rows)
+        raw_X_batch = self.raw_X[self.current_idx : end_idx]
+        labels_batch = self.labels[self.current_idx : end_idx] if self.labels is not None else None
         
-        sub_df = self.df.iloc[self.current_idx : self.current_idx + batch_size]
-        self.current_idx += len(sub_df)
-        
-        raw_X = sub_df[self.feature_cols].values.astype(np.float32)
-        
-        # Extract label if available
-        labels = None
-        for lcol in ("Label", "label", "target", "Target"):
-            if lcol in sub_df.columns:
-                labels = sub_df[lcol].values.astype(np.int32)
-                break
-                
-        pred_ids = [f"custom_{uuid.uuid4().hex[:10]}" for _ in range(len(sub_df))]
-        return raw_X, labels, pred_ids
+        self.current_idx = end_idx
+        if self.current_idx >= total_rows:
+            self.current_idx = 0
+
+        pred_ids = [f"custom_{uuid.uuid4().hex[:10]}" for _ in range(len(raw_X_batch))]
+        return raw_X_batch, labels_batch, pred_ids
 

@@ -31,24 +31,19 @@ if (-not (Test-Path "$ROOT/data/synthetic_swat.csv")) {
 
 # 3. Start FastAPI Server
 Write-Host "[1/2] Starting FastAPI Backend on http://localhost:8000 ..." -ForegroundColor Cyan
-$apiProcess = Start-Process -FilePath "python" `
-    -ArgumentList "-m uvicorn api.server:app --host 127.0.0.1 --port 8000" `
+$apiProcess = Start-Process powershell `
+    -ArgumentList "-NoExit", "-Command", "`$Host.UI.RawUI.WindowTitle = 'Model Decay Radar - Backend'; cd '$ROOT'; `$env:PYTHONPATH = 'src;pipeline;.'; python -m uvicorn api.server:app --host 127.0.0.1 --port 8000" `
     -WorkingDirectory $ROOT `
-    -Environment @{ PYTHONPATH = "$ROOT/src;$ROOT/pipeline;$ROOT" } `
-    -PassThru -NoNewWindow `
-    -RedirectStandardOutput "$ROOT/logs/api.log" `
-    -RedirectStandardError "$ROOT/logs/api_err.log"
+    -PassThru
 
 Write-Host "      FastAPI Process ID: $($apiProcess.Id)" -ForegroundColor Green
 
 # 4. Start Next.js Frontend
 Write-Host "[2/2] Starting Next.js Frontend on http://localhost:3000 ..." -ForegroundColor Cyan
-$frontProcess = Start-Process -FilePath "npm.cmd" `
-    -ArgumentList "run dev" `
+$frontProcess = Start-Process powershell `
+    -ArgumentList "-NoExit", "-Command", "`$Host.UI.RawUI.WindowTitle = 'Model Decay Radar - Frontend'; cd '$ROOT/frontend'; npm run dev" `
     -WorkingDirectory "$ROOT/frontend" `
-    -PassThru -NoNewWindow `
-    -RedirectStandardOutput "$ROOT/logs/frontend.log" `
-    -RedirectStandardError "$ROOT/logs/frontend_err.log"
+    -PassThru
 
 Write-Host "      Next.js Process ID: $($frontProcess.Id)" -ForegroundColor Green
 
