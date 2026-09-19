@@ -307,10 +307,11 @@ def predict(request: PredictRequest, background_tasks: BackgroundTasks):
         raise HTTPException(400, "Feature format invalid.")
 
     # Scale using reference-window scaler
-    if getattr(wm, "scaler", None) is None:
+    scaler = getattr(wm, "scaler", None)
+    if scaler is None:
         scaled_features = raw_features
     else:
-        scaled_features = wm.scaler.transform(raw_features.reshape(1, -1))[0] # type: ignore
+        scaled_features = scaler.transform(raw_features.reshape(1, -1))[0] # type: ignore
     scaled_features = np.clip(scaled_features, -2.0, 2.0)   # allow slight OOD
 
     # ML model prediction on raw features (returns immediately to user)
@@ -562,10 +563,11 @@ def admin_simulate(n_stable: int = 1000, n_drift: int = 1500):
     combined = pd.concat([stable_df, drift_df]).reset_index(drop=True)
 
     raw_features = combined[FEATURE_COLS].values.astype(np.float32)
-    if getattr(wm, "scaler", None) is None:
+    scaler = getattr(wm, "scaler", None)
+    if scaler is None:
         all_scaled = raw_features
     else:
-        all_scaled = np.clip(wm.scaler.transform(raw_features), -2.0, 2.0).astype(np.float32)
+        all_scaled = np.clip(scaler.transform(raw_features), -2.0, 2.0).astype(np.float32)
     all_labels = combined[LABEL_COL].values.astype(np.int32)
     all_preds = ml_model.predict_batch(raw_features)
 
@@ -631,10 +633,11 @@ def trigger_scenario(req: ScenarioRequest):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    if getattr(wm, "scaler", None) is None:
+    scaler = getattr(wm, "scaler", None)
+    if scaler is None:
         scaled_X = raw_X
     else:
-        scaled_X = np.clip(wm.scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
+        scaled_X = np.clip(scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
     preds = ml_model.predict_batch(raw_X)
 
     thread = threading.Thread(
@@ -717,18 +720,11 @@ def replay_step(req: ReplayRequest):
         raise HTTPException(400, "No active dataset loaded for replay. Provide a filename.")
 
     raw_X, labels, pred_ids = active_replay_engine.get_next_batch(req.batch_size)
-<<<<<<< Updated upstream
-    if getattr(wm, "scaler", None) is None:
-        scaled_X = raw_X
-    else:
-        scaled_X = np.clip(wm.scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
-=======
     scaler = getattr(wm, "scaler", None)
     if scaler is None:
         scaled_X = raw_X
     else:
         scaled_X = np.clip(scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
->>>>>>> Stashed changes
     preds = ml_model.predict_batch(raw_X)
 
     # Run synchronously to avoid macOS thread deadlocks with PyTorch/SHAP

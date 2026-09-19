@@ -140,21 +140,13 @@ class CustomCSVReplayEngine:
         sub_df = self.df.iloc[self.current_idx : self.current_idx + batch_size]
         self.current_idx += len(sub_df)
         
-<<<<<<< Updated upstream
-        raw_X = sub_df[self.feature_cols].values.astype(np.float32)
-=======
         raw_X = sub_df[self.feature_cols].to_numpy(dtype=np.float32)
->>>>>>> Stashed changes
         
         # Extract label if available
         labels = None
         for lcol in ("Label", "label", "target", "Target"):
             if lcol in sub_df.columns:
-<<<<<<< Updated upstream
-                labels = sub_df[lcol].values.astype(np.int32)
-=======
                 labels = sub_df[lcol].to_numpy(dtype=np.int32)
->>>>>>> Stashed changes
                 break
                 
         pred_ids = [f"custom_{uuid.uuid4().hex[:10]}" for _ in range(len(sub_df))]
