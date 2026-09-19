@@ -12,7 +12,8 @@
     "./pipeline"
   ],
   "typeCheckingMode": "off",
-  "reportMissingImports": true,
-  "pythonVersion": "3.12",
+  "reportMissingImports": false,
+  "reportUnusedImport": "warning",
+  "pythonVersion": "3.14",
   "pythonPlatform": "Windows"
 }

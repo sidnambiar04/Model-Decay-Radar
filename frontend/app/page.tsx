@@ -22,6 +22,11 @@ import {
   History,
   FileText
 } from "lucide-react";
+<<<<<<< Updated upstream
+=======
+import { useMonitoring } from "./hooks/useMonitoring";
+import CustomCursor from "@/components/CustomCursor";
+>>>>>>> Stashed changes
 
 export default function Dashboard() {
   const {
@@ -64,6 +69,7 @@ export default function Dashboard() {
   const previousValidationStatus = useRef<string | undefined>(undefined);
   const previousValidationCycle = useRef<number | undefined>(undefined);
 
+<<<<<<< Updated upstream
   useEffect(() => {
     if (latest?.validation_status && latest.validation_status !== "none") {
       if (
@@ -76,6 +82,20 @@ export default function Dashboard() {
       }
     }
   }, [latest?.validation_status, latest?.cycles]);
+=======
+  const {
+    health,
+    isConnected,
+  } = useMonitoring();
+  
+  const orchestratorReady = health?.orchestrator_ready ?? false;
+useEffect(() => {
+    // Simple sequence for the terminal typing effect
+    const timer1 = setTimeout(() => setTerminalStep(1), 1000);
+    const timer2 = setTimeout(() => setTerminalStep(2), 2500);
+    const timer3 = setTimeout(() => setTerminalStep(3), 4000);
+    const timer4 = setTimeout(() => setTerminalStep(4), 5500);
+>>>>>>> Stashed changes
 
   // Upload state
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -540,8 +560,15 @@ export default function Dashboard() {
   };
 
   return (
+<<<<<<< Updated upstream
     <div className="min-h-screen bg-[#07070a] text-zinc-100 flex flex-col selection:bg-indigo-500/30 selection:text-indigo-200">
       {/* Dynamic Glow Header */}
+=======
+    <div className="min-h-screen bg-background text-foreground selection:bg-rose-500/30 selection:text-rose-200">
+      <CustomCursor />
+
+      {/* Navigation */}
+>>>>>>> Stashed changes
       <header className="border-b border-zinc-900/60 bg-zinc-950/20 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-3">
           <div className="relative">
@@ -554,6 +581,8 @@ export default function Dashboard() {
             <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
               MODEL DECAY RADAR
               <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded border border-zinc-800 text-zinc-400 bg-zinc-900">v2.0</span>
+<<<<<<< Updated upstream
+=======
             </h1>
             <p className="text-xs text-zinc-500 font-mono mt-0.5">
               Status: {isConnected
@@ -568,6 +597,161 @@ export default function Dashboard() {
                         : "CONNECTED · INITIALISING…"
                 : "DISCONNECTED"}
             </p>
+          </div>
+        </div>
+      </header>
+
+      {/* Hero Section */}
+      <main className="min-h-screen pt-24 pb-16 px-6 relative overflow-hidden flex flex-col justify-center">
+        
+        {/* Glow & Grid Effects */}
+        <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-rose-500/10 blur-[120px] rounded-full pointer-events-none" />
+        <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+        
+        <div className="max-w-7xl mx-auto relative z-10 w-full flex flex-col lg:flex-row items-center gap-12 lg:gap-4 -mt-16">
+          <div className="text-center lg:text-left flex-1">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold tracking-widest uppercase mb-8">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+              Active Monitoring Pipeline
+            </div>
+
+            <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-white mb-8 leading-[1.1]">
+              Detect Model Decay <br />
+              <span className="bg-gradient-to-r from-rose-400 via-fuchsia-400 to-indigo-400 bg-clip-text text-transparent">
+                Before It Hits Production
+              </span>
+>>>>>>> Stashed changes
+            </h1>
+            <p className="text-xs text-zinc-500 font-mono mt-0.5">
+              Status: {isConnected
+                ? orchestratorReady
+                  ? "CONNECTED · READY (polling 3s)"
+                  : health?.setup_progress === "training_ae"
+                    ? "CONNECTED · TRAINING AUTOENCODER…"
+                    : health?.setup_progress === "training_rnn"
+                      ? "CONNECTED · TRAINING RNN ENSEMBLE…"
+                      : health?.setup_progress === "failed"
+                        ? "CONNECTED · SETUP FAILED"
+                        : "CONNECTED · INITIALISING…"
+                : "DISCONNECTED"}
+            </p>
+<<<<<<< Updated upstream
+=======
+
+            <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-16">
+              <Link href="/dashboard" className="w-full sm:w-auto flex items-center justify-center gap-2 text-base font-semibold text-white px-8 py-4 rounded-xl bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 transition-all shadow-[0_0_30px_rgba(244,63,94,0.3)] hover:shadow-[0_0_40px_rgba(244,63,94,0.5)] hover:-translate-y-0.5">
+                Launch Dashboard <ArrowRight className="w-5 h-5" />
+              </Link>
+              <Link href="/docs" className="w-full sm:w-auto flex items-center justify-center gap-2 text-base font-semibold text-white px-8 py-4 rounded-xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 transition-all hover:-translate-y-0.5">
+                Read Documentation <Terminal className="w-5 h-5" />
+              </Link>
+            </div>
+
+            <div className="flex items-center justify-center lg:justify-start gap-6 font-mono text-xs text-zinc-500">
+              <span className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">Γ£ô</div>
+                v2.0 OSS
+              </span>
+              <span className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">ΓÜí</div>
+                Low Latency
+              </span>
+              <span className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">ΓÄê</div>
+                FastAPI + Next.js
+              </span>
+            </div>
+          </div>
+
+          {/* Arize-style Network Animation */}
+          <div className="flex-1 w-full flex justify-center lg:justify-end">
+            <div className="relative w-[350px] h-[350px] md:w-[450px] md:h-[450px] lg:w-[600px] lg:h-[600px] xl:w-[700px] xl:h-[700px] pointer-events-none perspective-[1000px] lg:-mt-24 xl:-mt-32">
+              
+              <svg className="absolute inset-0 w-full h-full [transform:rotateX(10deg)_rotateZ(-5deg)]" viewBox="0 0 500 500">
+                <defs>
+                  <filter id="glow-strong">
+                    <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+                    <feMerge>
+                      <feMergeNode in="coloredBlur" />
+                      <feMergeNode in="coloredBlur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                  <filter id="glow-light">
+                    <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+                    <feMerge>
+                      <feMergeNode in="coloredBlur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                  <linearGradient id="trace-grad-1" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#f43f5e" />
+                    <stop offset="100%" stopColor="#6366f1" />
+                  </linearGradient>
+                  <linearGradient id="trace-grad-2" x1="100%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor="#10b981" />
+                    <stop offset="100%" stopColor="#3b82f6" />
+                  </linearGradient>
+                </defs>
+
+                {/* Background faint paths */}
+                <g stroke="rgba(255,255,255,0.06)" strokeWidth="1.5" fill="none">
+                  <path d="M 50 250 Q 150 100 250 250 T 450 250" />
+                  <path d="M 100 400 Q 250 300 250 250 T 400 100" />
+                  <path d="M 150 150 Q 250 250 350 150" />
+                  <path d="M 150 350 Q 250 250 350 350" />
+                  <circle cx="250" cy="250" r="100" strokeDasharray="4 8" />
+                  <circle cx="250" cy="250" r="150" strokeDasharray="2 12" />
+                </g>
+
+                {/* Flowing Data Particles */}
+                <g fill="none" strokeWidth="3" filter="url(#glow-strong)" style={{ animation: 'data-flow 3s linear infinite' }}>
+                  <path d="M 50 250 Q 150 100 250 250 T 450 250" stroke="url(#trace-grad-1)" strokeDasharray="20 400" />
+                  <path d="M 100 400 Q 250 300 250 250 T 400 100" stroke="url(#trace-grad-2)" strokeDasharray="30 350" style={{ animationDelay: '-1s' }} />
+                  <path d="M 150 150 Q 250 250 350 150" stroke="#f43f5e" strokeDasharray="15 200" style={{ animationDelay: '-0.5s' }} />
+                  <path d="M 150 350 Q 250 250 350 350" stroke="#4f46e5" strokeDasharray="25 250" style={{ animationDelay: '-2s' }} />
+                  <circle cx="250" cy="250" r="100" stroke="#10b981" strokeDasharray="10 300" style={{ animationDelay: '-1.5s' }} />
+                </g>
+
+                {/* Nodes & Labels */}
+                <g filter="url(#glow-light)">
+                  {/* Core Node */}
+                  <circle cx="250" cy="250" r="12" fill="#0d0f12" stroke="#f43f5e" strokeWidth="3" />
+                  <circle cx="250" cy="250" r="6" fill="#f43f5e" style={{ animation: 'node-burst 3s infinite 1.5s' }} />
+                  <text x="250" y="230" fill="#a1a1aa" fontSize="12" fontWeight="bold" textAnchor="middle" letterSpacing="1">MODEL CORE</text>
+
+                  {/* Peripheral Nodes */}
+                  <circle cx="50" cy="250" r="5" fill="#6366f1" style={{ animation: 'node-burst 3s infinite 0s' }} />
+                  <text x="50" y="235" fill="#71717a" fontSize="10" textAnchor="middle">Ingestion</text>
+
+                  <circle cx="150" cy="150" r="6" fill="#f43f5e" style={{ animation: 'node-burst 3s infinite 0.5s' }} />
+                  <text x="150" y="135" fill="#71717a" fontSize="10" textAnchor="middle">VAE Encoder</text>
+
+                  <circle cx="150" cy="350" r="5" fill="#4f46e5" style={{ animation: 'node-burst 3s infinite 1s' }} />
+                  <text x="150" y="370" fill="#71717a" fontSize="10" textAnchor="middle">MC Dropout</text>
+
+                  <circle cx="350" cy="150" r="6" fill="#10b981" style={{ animation: 'node-burst 3s infinite 2s' }} />
+                  <text x="350" y="135" fill="#71717a" fontSize="10" textAnchor="middle">Drift Score</text>
+
+                  <circle cx="350" cy="350" r="5" fill="#f59e0b" style={{ animation: 'node-burst 3s infinite 2.5s' }} />
+                  <text x="350" y="370" fill="#71717a" fontSize="10" textAnchor="middle">SHAP Explainer</text>
+
+                  <circle cx="450" cy="250" r="6" fill="#6366f1" style={{ animation: 'node-burst 3s infinite 3s' }} />
+                  <text x="450" y="235" fill="#71717a" fontSize="10" textAnchor="middle">Retrain</text>
+
+                  <circle cx="100" cy="400" r="5" fill="#10b981" style={{ animation: 'node-burst 3s infinite 0.5s' }} />
+                  <circle cx="400" cy="100" r="6" fill="#3b82f6" style={{ animation: 'node-burst 3s infinite 2.5s' }} />
+
+                  {/* Orbital Nodes */}
+                  <circle cx="150" cy="250" r="4" fill="#a855f7" />
+                  <circle cx="350" cy="250" r="4" fill="#a855f7" />
+                  <circle cx="250" cy="150" r="4" fill="#14b8a6" />
+                  <circle cx="250" cy="350" r="4" fill="#14b8a6" />
+                </g>
+              </svg>
+            </div>
+>>>>>>> Stashed changes
           </div>
         </div>
 
@@ -1192,6 +1376,42 @@ export default function Dashboard() {
                   Close
                 </button>
               </div>
+<<<<<<< Updated upstream
+=======
+
+              {/* Terminal 3: Explainer */}
+              <div className="glass-card rounded-xl border border-zinc-700 overflow-hidden shadow-2xl flex flex-col">
+                <div className="bg-zinc-900 border-b border-zinc-800 px-4 py-3 flex items-center gap-2 shrink-0">
+                  <div className="w-3 h-3 rounded-full bg-rose-500/20 border border-rose-500/50"></div>
+                  <div className="w-3 h-3 rounded-full bg-amber-500/20 border border-amber-500/50"></div>
+                  <div className="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500/50"></div>
+                  <div className="ml-4 font-mono text-[10px] text-zinc-500 tracking-widest">shap_explainer.py</div>
+                </div>
+                <div className="p-6 font-mono text-xs md:text-sm leading-relaxed bg-[#0a0d10] text-zinc-300 flex-1">
+                  <div className="mb-2 text-indigo-400">import shap<br/>explainer = shap.Explainer(model)</div>
+                  {terminalStep >= 3 && (
+                    <>
+                      <div className="mb-2">
+                        <span className="text-zinc-500"># Generating local explanations...</span><br/>
+                        &gt;&gt;&gt; shap_values = explainer(X_drift)
+                      </div>
+                      <div className="mb-2 animate-type">
+                        [ <span className="text-amber-400">Feature Importance</span> ]<br/>
+                        LIT101:  <span className="text-rose-400">ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûê</span> 0.42<br/>
+                        P402:    <span className="text-rose-400">ΓûêΓûêΓûêΓûê</span> 0.21<br/>
+                        DPIT301: <span className="text-rose-400">ΓûêΓûê</span> 0.15<br/>
+                      </div>
+                    </>
+                  )}
+                  {terminalStep < 3 && (
+                    <div className="flex items-center">
+                      <span className="w-2 h-4 bg-zinc-400 animate-pulse ml-1"></span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+>>>>>>> Stashed changes
             </div>
           </div>
         </div>

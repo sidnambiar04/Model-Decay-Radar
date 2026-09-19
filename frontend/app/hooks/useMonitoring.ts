@@ -62,6 +62,10 @@ export interface MonitoringResult {
     active_accuracy: number;
     active_f1: number;
     margin: number;
+    accuracy?: number;
+    f1_score?: number;
+    precision?: number;
+    recall?: number;
   } | null;
   cycles?: number;
 }
@@ -329,6 +333,47 @@ export function useMonitoring() {
     }
   };
 
+  const sendPredict = async (features: Record<string, number>, label?: number): Promise<{ success: boolean; data?: any; error?: string; latencyMs?: number }> => {
+    const start = performance.now();
+    try {
+      const res = await fetch(`${API_BASE}/predict`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ features, label }),
+      });
+      const latencyMs = Math.round(performance.now() - start);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(errData.detail || `Server error: ${res.status}`);
+      }
+      const data = await res.json();
+      await fetchData();
+      return { success: true, data, latencyMs };
+    } catch (err: any) {
+      const latencyMs = Math.round(performance.now() - start);
+      return { success: false, error: err.message || "Failed to send predict payload", latencyMs };
+    }
+  };
+
+  const sendDelayedLabels = async (labels: Array<{ prediction_id: string; label: number }>): Promise<{ success: boolean; data?: any; error?: string }> => {
+    try {
+      const res = await fetch(`${API_BASE}/labels/delayed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labels }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(errData.detail || `Server error: ${res.status}`);
+      }
+      const data = await res.json();
+      await fetchData();
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message || "Failed to send delayed labels" };
+    }
+  };
+
   return {
     latest,
     history,
@@ -348,6 +393,8 @@ export function useMonitoring() {
     replayStep,
     fetchRegistryHistory,
     rollbackModel,
+    sendPredict,
+    sendDelayedLabels,
     refetch: fetchData,
   };
 }

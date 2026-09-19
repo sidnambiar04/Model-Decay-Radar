@@ -23,8 +23,8 @@ sys.path.insert(0, os.path.join(_ROOT, "src"))
 
 import time
 import numpy as np
-from dataclasses import dataclass, field
-from typing import Optional, Callable
+from dataclasses import dataclass
+from typing import Optional, Callable, Any
 
 import torch
 from sklearn.metrics import precision_score, recall_score, f1_score
@@ -162,6 +162,8 @@ class RadarOrchestrator:
         self.ref_errors: Optional[np.ndarray] = None
         self.ref_scores: Optional[np.ndarray] = None
         self.dynamic_threshold: float = 0.0
+        self.classifier: Optional[Any] = None
+        self.scaler: Optional[Any] = None
 
         # Centralized Drift Fusion Engine, Root Cause Engine, Model Registry, and Validation Gate
         self.fusion_engine = DriftSignalFusionEngine()
@@ -187,8 +189,8 @@ class RadarOrchestrator:
     def setup(self, reference_scaled: np.ndarray,
               reference_raw_X: Optional[np.ndarray] = None,
               reference_raw_y: Optional[np.ndarray] = None,
-              classifier: Optional[object] = None,
-              scaler: Optional[object] = None,
+              classifier: Optional[Any] = None,
+              scaler: Optional[Any] = None,
               ae_epochs: int = 10, rnn_epochs: int = 5,
               progress_callback: Optional[Callable[[str], None]] = None):
         """
@@ -233,7 +235,7 @@ class RadarOrchestrator:
         )
 
         # Log initial baseline version (v1) in Model Registry
-        clf_name = self.classifier.active_model_name if self.classifier else "Random Forest"
+        clf_name = getattr(self.classifier, "active_model_name", "Random Forest") if self.classifier else "Random Forest"
         self.registry.log_version("v1", clf_name, {"accuracy": 0.95, "f1_score": 0.95}, "initial_baseline")
 
         self.is_ready = True
@@ -252,7 +254,7 @@ class RadarOrchestrator:
         Full 7-layer pipeline on one incoming batch.
         Runs drift detection on RAW production distributions.
         """
-        if not self.is_ready or self.ae_model is None:
+        if not self.is_ready or self.ae_model is None or self.calibrator is None or self.ref_scores is None or self.ensemble is None:
             raise RuntimeError("Call setup() before run_monitoring_cycle().")
 
         self.batch_counter += 1
@@ -428,6 +430,9 @@ class RadarOrchestrator:
     def _run_shap(self, batch_scaled: np.ndarray, max_bg: int = 30,
                   max_test: int = 30) -> list[dict]:
         """Run SHAP and return top 10 features as [{feature, importance}]."""
+        if self.ae_model is None:
+            return []
+            
         try:
             import shap
             rng = np.random.default_rng(42)
@@ -491,9 +496,11 @@ class RadarOrchestrator:
                 and drift_labels is not None 
                 and self.reference_raw_X is not None
                 and self.reference_raw_y is not None
+                and self.ae_model is not None
+                and self.ref_errors is not None
             ):
                 # Start Experiment Tracking
-                active_model_name = self.classifier.active_model_name
+                active_model_name = getattr(self.classifier, "active_model_name", "Random Forest")
                 exp_context = self.experiment_tracker.start_experiment(
                     trigger_reason=f"MHS Critical at batch {self.batch_counter}",
                     classifier_type=active_model_name,
@@ -515,9 +522,10 @@ class RadarOrchestrator:
                     print("[Orchestrator] SMOTE oversampling applied to drift dataset for candidate retraining.")
 
                 # Class balance stats for experiment logging
-                import pandas as pd
-                class_balance_before = {int(k): int(v) for k, v in pd.Series(drift_labels).value_counts().items()}
-                class_balance_after = {int(k): int(v) for k, v in pd.Series(training_drift_y).value_counts().items()}
+                unique_b, counts_b = np.unique(drift_labels, return_counts=True)
+                class_balance_before = {int(k): int(v) for k, v in zip(unique_b, counts_b)}
+                unique_a, counts_a = np.unique(training_drift_y, return_counts=True)
+                class_balance_after = {int(k): int(v) for k, v in zip(unique_a, counts_a)}
 
                 # Mix historical reference data with drifted data according to retraining ratio (80/20)
                 ratio = config.retraining_ratio
@@ -532,8 +540,20 @@ class RadarOrchestrator:
 
                 # Capture BEFORE metrics (active model performance on validation set)
                 val_n = min(1000, len(self.reference_raw_X))
-                val_X = self.reference_raw_X[-val_n:]
-                val_y = self.reference_raw_y[-val_n:]
+                
+                _classes, _counts = np.unique(self.reference_raw_y, return_counts=True)
+                if val_n < len(self.reference_raw_X) and np.all(_counts >= 2) and len(_classes) >= 2:
+                    from sklearn.model_selection import train_test_split
+                    _, val_X, _, val_y = train_test_split(
+                        self.reference_raw_X, self.reference_raw_y,
+                        test_size=val_n,
+                        stratify=self.reference_raw_y,
+                        random_state=42
+                    )
+                else:
+                    val_X = self.reference_raw_X[-val_n:]
+                    val_y = self.reference_raw_y[-val_n:]
+
                 before_metrics = self.validation_gate.evaluate_model_metrics(self.classifier, val_X, val_y)
 
                 # Train Candidate Classifier Model
@@ -556,7 +576,17 @@ class RadarOrchestrator:
                     val_y=val_y,
                 )
 
-                self.latest_validation_metrics = val_result.candidate_metrics
+                self.latest_validation_metrics = {
+                    "active_accuracy": val_result.active_metrics.get("accuracy", 0.0),
+                    "active_f1": val_result.active_metrics.get("f1_score", 0.0),
+                    "candidate_accuracy": val_result.candidate_metrics.get("accuracy", 0.0),
+                    "candidate_f1": val_result.candidate_metrics.get("f1_score", 0.0),
+                    "accuracy": val_result.candidate_metrics.get("accuracy", 0.0),
+                    "f1_score": val_result.candidate_metrics.get("f1_score", 0.0),
+                    "precision": val_result.candidate_metrics.get("precision", 0.0),
+                    "recall": val_result.candidate_metrics.get("recall", 0.0),
+                    "margin": getattr(config, "validation_f1_threshold_margin", 0.02),
+                }
                 next_tag = self.registry.get_next_version_tag()
 
                 if val_result.is_promoted:
@@ -597,8 +627,7 @@ class RadarOrchestrator:
                     new_ref_errors = compute_reconstruction_errors(
                         self.ae_model, drift_batch, lam=0.7
                     )
-                    n_retained = min(500, len(self.ref_errors))
-                    self.ref_errors = np.concatenate([self.ref_errors[n_retained:], new_ref_errors])
+                    self.ref_errors = np.concatenate([self.ref_errors[-500:], new_ref_errors])
                     self.dynamic_threshold = compute_dynamic_threshold(self.ref_errors)
                     self.calibrator = DriftCalibrator().fit(self.ref_errors)
                     self.ref_scores = self.calibrator.transform(self.ref_errors)

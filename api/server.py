@@ -717,10 +717,18 @@ def replay_step(req: ReplayRequest):
         raise HTTPException(400, "No active dataset loaded for replay. Provide a filename.")
 
     raw_X, labels, pred_ids = active_replay_engine.get_next_batch(req.batch_size)
+<<<<<<< Updated upstream
     if getattr(wm, "scaler", None) is None:
         scaled_X = raw_X
     else:
         scaled_X = np.clip(wm.scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
+=======
+    scaler = getattr(wm, "scaler", None)
+    if scaler is None:
+        scaled_X = raw_X
+    else:
+        scaled_X = np.clip(scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
+>>>>>>> Stashed changes
     preds = ml_model.predict_batch(raw_X)
 
     # Run synchronously to avoid macOS thread deadlocks with PyTorch/SHAP
