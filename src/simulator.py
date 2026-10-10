@@ -18,7 +18,7 @@ import os
 import uuid
 import numpy as np
 import pandas as pd
-from typing import Tuple, List, Dict, Any, Optional
+from typing import Tuple, List, Optional
 
 _DATA_PATH = os.path.join(os.path.dirname(__file__), "../data/synthetic_swat.csv")
 
@@ -61,14 +61,14 @@ class ScenarioSimulator:
         if scenario == "normal":
             stable_df = self.df[self.df["_window"] == "current_stable"]
             sample_df = stable_df.sample(n=n_samples, replace=True, random_state=42)
-            raw_X = sample_df[self.feature_cols].values.astype(np.float32)
-            labels = sample_df[self.label_col].values.astype(np.int32)
+            raw_X = sample_df[self.feature_cols].to_numpy(dtype=np.float32)
+            labels = sample_df[self.label_col].to_numpy(dtype=np.int32)
 
         elif scenario == "gradual":
             drift_df = self.df[self.df["_window"] == "current_drift"]
             sample_df = drift_df.sample(n=n_samples, replace=True, random_state=42)
-            raw_X = sample_df[self.feature_cols].values.astype(np.float32).copy()
-            labels = sample_df[self.label_col].values.astype(np.int32)
+            raw_X = sample_df[self.feature_cols].to_numpy(dtype=np.float32, copy=True)
+            labels = sample_df[self.label_col].to_numpy(dtype=np.int32)
 
             # Apply gradual ramp scaling based on drift_strength
             ramp = np.linspace(0.2, 1.0, n_samples).reshape(-1, 1)
@@ -81,8 +81,8 @@ class ScenarioSimulator:
         elif scenario == "sudden":
             drift_df = self.df[self.df["_window"] == "current_drift"]
             sample_df = drift_df.sample(n=n_samples, replace=True, random_state=42)
-            raw_X = sample_df[self.feature_cols].values.astype(np.float32).copy()
-            labels = sample_df[self.label_col].values.astype(np.int32)
+            raw_X = sample_df[self.feature_cols].to_numpy(dtype=np.float32, copy=True)
+            labels = sample_df[self.label_col].to_numpy(dtype=np.int32)
 
             # Apply immediate step shift
             target_cols = ["LIT101", "DPIT301", "P402"]
@@ -103,15 +103,15 @@ class ScenarioSimulator:
             anom_sample = drift_df[drift_df[self.label_col] == 1].sample(n=n_anom, replace=True, random_state=42)
 
             combined_df = pd.concat([norm_sample, anom_sample]).sample(frac=1.0, random_state=42)
-            raw_X = combined_df[self.feature_cols].values.astype(np.float32)
-            labels = combined_df[self.label_col].values.astype(np.int32)
+            raw_X = combined_df[self.feature_cols].to_numpy(dtype=np.float32)
+            labels = combined_df[self.label_col].to_numpy(dtype=np.int32)
 
         elif scenario == "recovery":
             # Post-retraining nominal data showing recovery back to healthy MHS
             stable_df = self.df[self.df["_window"] == "current_stable"]
             sample_df = stable_df.sample(n=n_samples, replace=True, random_state=99)
-            raw_X = sample_df[self.feature_cols].values.astype(np.float32)
-            labels = sample_df[self.label_col].values.astype(np.int32)
+            raw_X = sample_df[self.feature_cols].to_numpy(dtype=np.float32)
+            labels = sample_df[self.label_col].to_numpy(dtype=np.int32)
 
         else:
             raise ValueError(f"Unknown scenario: '{scenario}'. Choose from normal, gradual, sudden, imbalance, recovery.")

@@ -3,6 +3,7 @@
 import { useMonitoring, MonitoringResult } from "../hooks/useMonitoring";
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { ApiIngestionModal } from "../../components/ApiIngestionModal";
 import {
   Activity,
   ShieldAlert,
@@ -21,7 +22,10 @@ import {
   Database,
   Upload,
   History,
-  FileText
+  FileText,
+  Globe,
+  Send,
+  Terminal,
 } from "lucide-react";
 
 export default function Dashboard() {
@@ -43,12 +47,15 @@ export default function Dashboard() {
     replayStep,
     fetchRegistryHistory,
     rollbackModel,
+    sendPredict,
+    sendDelayedLabels,
     refetch,
   } = useMonitoring();
 
   const [isSimulating, setIsSimulating] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [isApiModalOpen, setIsApiModalOpen] = useState(false);
 
   // Dynamic configuration and observability states
   const [retrainMsg, setRetrainMsg] = useState<string | null>(null);
@@ -565,12 +572,26 @@ export default function Dashboard() {
           
           <nav className="hidden md:flex gap-6 text-sm font-medium text-zinc-400">
             <span className="text-white">Dashboard</span>
+            <button
+              onClick={() => setIsApiModalOpen(true)}
+              className="hover:text-white cursor-pointer transition-colors flex items-center gap-1.5 text-indigo-400 font-semibold"
+            >
+              <Globe className="w-3.5 h-3.5" /> API Ingestion
+            </button>
             <span className="hover:text-white cursor-pointer transition-colors" onClick={handleOpenRegistry}>Model Registry</span>
             <Link href="/docs" className="hover:text-white transition-colors">Documentation</Link>
           </nav>
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsApiModalOpen(true)}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 font-semibold text-xs font-mono transition-all cursor-pointer"
+            title="Open API Ingestion Console & REST Tester"
+          >
+            <Send className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden sm:inline">API Console</span>
+          </button>
           <p className="text-[10px] text-zinc-500 font-mono hidden lg:block mr-4">
             {isConnected
               ? orchestratorReady
@@ -1116,6 +1137,15 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+      {/* API Ingestion Modal */}
+      <ApiIngestionModal
+        isOpen={isApiModalOpen}
+        onClose={() => setIsApiModalOpen(false)}
+        health={health}
+        config={config}
+        sendPredict={sendPredict}
+        sendDelayedLabels={sendDelayedLabels}
+      />
     </div>
   );
 }

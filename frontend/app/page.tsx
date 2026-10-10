@@ -10,12 +10,21 @@ import {
   ShieldAlert,
   BrainCircuit,
   Settings2,
-  Workflow
+  Workflow,
+  Globe
 } from "lucide-react";
 import CustomCursor from "@/components/CustomCursor";
+import { useMonitoring } from "./hooks/useMonitoring";
 
 export default function LandingPage() {
   const [terminalStep, setTerminalStep] = useState(0);
+
+  const {
+    health,
+    isConnected,
+  } = useMonitoring();
+  
+  const orchestratorReady = health?.orchestrator_ready ?? false;
 
   useEffect(() => {
     // Simple sequence for the terminal typing effect
@@ -51,7 +60,8 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800">
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+              <span className={`absolute inline-flex h-2 w-2 rounded-full opacity-75 ${isConnected ? "bg-emerald-400 animate-ping" : "bg-rose-400"}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${isConnected ? "bg-emerald-500" : "bg-rose-500"}`}></span>
             </div>
             <span className="font-bold tracking-tight text-white">MODEL DECAY RADAR</span>
           </div>
