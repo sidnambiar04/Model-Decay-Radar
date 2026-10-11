@@ -786,12 +786,16 @@ async def upload_dataset(file: UploadFile = File(...)):
 
 class ReplayRequest(BaseModel):
     filename: Optional[str] = None
-    batch_size: int = 500
+    batch_size: Optional[int] = None
+    n_batches: int = 1
 
 
 @app.post("/admin/replay_step")
 def replay_step(req: ReplayRequest):
-    """Replay next batch from uploaded CSV dataset in Real Data Monitoring Mode."""
+    """Replay batches from uploaded CSV dataset in Real Data Monitoring Mode.
+    Automatically determines optimal batch size and runs multiple batches (default 5)
+    so charts and history logs display multi-batch trends.
+    """
     global active_replay_engine
     if not orchestrator.is_ready:
         raise HTTPException(400, "Orchestrator is not ready yet.")
@@ -812,41 +816,66 @@ def replay_step(req: ReplayRequest):
         if active_replay_engine is None:
             raise HTTPException(400, "No active dataset loaded for replay. Please upload a CSV dataset first.")
 
-    try:
-        raw_X, labels, pred_ids = active_replay_engine.get_next_batch(req.batch_size)
-    except Exception as e:
-        raise HTTPException(400, f"Failed to read next batch: {str(e)}")
+    total_samples = len(active_replay_engine.raw_X)
+    if total_samples == 0:
+        raise HTTPException(400, "Dataset contains 0 rows.")
 
-    if len(raw_X) == 0:
-        raise HTTPException(400, "No samples returned in batch.")
-
-    scaler = getattr(wm, "scaler", None)
-    if scaler is None:
-        scaled_X = raw_X
+    # Determine adaptive batch size
+    if req.batch_size and req.batch_size > 0:
+        effective_batch_size = req.batch_size
+    elif total_samples <= 1200:
+        effective_batch_size = max(40, total_samples // 6)
     else:
+        effective_batch_size = config.window_size
+
+    n_to_run = max(1, req.n_batches)
+    completed_batches = 0
+    total_samples_replayed = 0
+    scaler = getattr(wm, "scaler", None)
+
+    for _ in range(n_to_run):
         try:
-            scaled_X = np.clip(scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
+            raw_X, labels, pred_ids = active_replay_engine.get_next_batch(effective_batch_size)
         except Exception as e:
-            raise HTTPException(
-                400,
-                f"Feature dimension mismatch (got {raw_X.shape[1]} features, expected {len(FEATURE_COLS)}). "
-                f"Please re-upload this CSV to re-calibrate the Radar baseline."
-            )
+            if completed_batches > 0:
+                break
+            raise HTTPException(400, f"Failed to read next batch: {str(e)}")
 
-    try:
-        preds = ml_model.predict_batch(raw_X)
-    except Exception as e:
-        raise HTTPException(400, f"Model prediction error: {str(e)}")
+        if len(raw_X) == 0:
+            break
 
-    # Run synchronously to avoid macOS/Windows thread deadlocks with PyTorch/SHAP
-    run_monitoring_cycle_background(scaled_X, labels, preds)
+        if scaler is None:
+            scaled_X = raw_X
+        else:
+            try:
+                scaled_X = np.clip(scaler.transform(raw_X), -2.0, 2.0).astype(np.float32)
+            except Exception as e:
+                raise HTTPException(
+                    400,
+                    f"Feature dimension mismatch (got {raw_X.shape[1]} features, expected {len(FEATURE_COLS)}). "
+                    f"Please re-upload this CSV to re-calibrate the Radar baseline."
+                )
+
+        try:
+            preds = ml_model.predict_batch(raw_X)
+        except Exception as e:
+            raise HTTPException(400, f"Model prediction error: {str(e)}")
+
+        # Run monitoring cycle
+        run_monitoring_cycle_background(scaled_X, labels, preds)
+        completed_batches += 1
+        total_samples_replayed += len(raw_X)
+
+    if completed_batches == 0:
+        raise HTTPException(400, "No samples could be processed.")
 
     return {
         "status": "success",
-        "samples_replayed": len(raw_X),
+        "batches_completed": completed_batches,
+        "samples_replayed": total_samples_replayed,
         "current_index": active_replay_engine.current_idx,
-        "total_rows": len(active_replay_engine.raw_X),
-        "message": f"Replayed batch of {len(raw_X)} samples (position {active_replay_engine.current_idx}/{len(active_replay_engine.raw_X)}). Monitoring cycle completed.",
+        "total_rows": total_samples,
+        "message": f"Replayed {completed_batches} batches ({total_samples_replayed} samples, position {active_replay_engine.current_idx}/{total_samples}).",
     }
 
 

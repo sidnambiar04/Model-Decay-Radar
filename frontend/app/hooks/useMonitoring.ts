@@ -289,12 +289,12 @@ export function useMonitoring() {
     }
   };
 
-  const replayStep = async (batchSize: number = 500): Promise<string> => {
+  const replayStep = async (batchSize?: number, nBatches: number = 1): Promise<string> => {
     try {
       const res = await fetch(`${API_BASE}/admin/replay_step`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ batch_size: batchSize }),
+        body: JSON.stringify({ batch_size: batchSize, n_batches: nBatches }),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({ detail: res.statusText }));
@@ -303,7 +303,7 @@ export function useMonitoring() {
       const data = await res.json();
       const msg = `✅ ${data.message}`;
       setSimulateMessage(msg);
-      setTimeout(() => fetchData(), 500);
+      setTimeout(() => fetchData(), 400);
       return msg;
     } catch (err: any) {
       const msg = `❌ Replay failed: ${err.message}`;

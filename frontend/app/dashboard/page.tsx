@@ -88,6 +88,38 @@ export default function Dashboard() {
   // Upload state
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isAutoStreaming, setIsAutoStreaming] = useState(false);
+  const isAutoStreamingRef = useRef(false);
+  const streamIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const toggleAutoStream = () => {
+    if (isAutoStreaming) {
+      isAutoStreamingRef.current = false;
+      if (streamIntervalRef.current) {
+        clearInterval(streamIntervalRef.current);
+        streamIntervalRef.current = null;
+      }
+      setIsAutoStreaming(false);
+    } else {
+      isAutoStreamingRef.current = true;
+      setIsAutoStreaming(true);
+      replayStep(undefined, 1);
+      streamIntervalRef.current = setInterval(() => {
+        if (!isAutoStreamingRef.current) {
+          if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+          return;
+        }
+        replayStep(undefined, 1);
+      }, 3000);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      isAutoStreamingRef.current = false;
+      if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+    };
+  }, []);
 
   const handleRetrain = async () => {
     setIsRetraining(true);
@@ -108,6 +140,11 @@ export default function Dashboard() {
 
   const handleReset = async () => {
     if (confirm("Are you sure you want to reset all monitoring history and the prediction buffer?")) {
+      if (streamIntervalRef.current) {
+        clearInterval(streamIntervalRef.current);
+        streamIntervalRef.current = null;
+      }
+      setIsAutoStreaming(false);
       setIsResetting(true);
       await resetDashboard();
       setIsResetting(false);
@@ -555,44 +592,45 @@ export default function Dashboard() {
       <div className="hero-glow top-[50%] right-[10%] bg-[radial-gradient(circle,rgba(225,29,72,0.08)_0%,rgba(13,15,18,0)_70%)]"></div>
 
       {/* Sleek Navigation Bar */}
-      <header className="border-b border-white/5 bg-black/40 backdrop-blur-xl sticky top-0 z-50 px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
-        <div className="flex items-center gap-6">
-          <Link href="/" className="flex items-center gap-3 group cursor-pointer">
-            <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 group-hover:border-rose-500/50 transition-colors">
+      <header className="border-b border-white/5 bg-black/40 backdrop-blur-xl sticky top-0 z-50 px-4 lg:px-6 py-3 flex flex-row justify-between items-center gap-3 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-4 lg:gap-6 shrink-0">
+          <Link href="/" className="flex items-center gap-2.5 group cursor-pointer shrink-0">
+            <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 group-hover:border-rose-500/50 transition-colors shrink-0">
               <span className={`absolute inline-flex h-2.5 w-2.5 rounded-full opacity-75 ${isConnected ? "bg-emerald-400 animate-ping" : "bg-rose-400 animate-pulse"}`}></span>
               <span className={`relative inline-flex rounded-full h-2 w-2 ${isConnected ? "bg-emerald-500" : "bg-rose-500"}`}></span>
             </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2 group-hover:text-rose-400 transition-colors">
+            <div className="shrink-0">
+              <h1 className="text-base lg:text-lg font-bold tracking-tight text-white flex items-center gap-2 group-hover:text-rose-400 transition-colors whitespace-nowrap">
                 MODEL DECAY RADAR
                 <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-400 bg-zinc-900/50">OSS</span>
               </h1>
             </div>
           </Link>
           
-          <nav className="hidden md:flex gap-6 text-sm font-medium text-zinc-400">
-            <span className="text-white">Dashboard</span>
+          <nav className="hidden md:flex items-center gap-4 lg:gap-6 text-xs lg:text-sm font-medium text-zinc-400 shrink-0">
+            <span className="text-white whitespace-nowrap">Dashboard</span>
             <button
               onClick={() => setIsApiModalOpen(true)}
-              className="hover:text-white cursor-pointer transition-colors flex items-center gap-1.5 text-indigo-400 font-semibold"
+              className="hover:text-white cursor-pointer transition-colors flex items-center gap-1.5 text-indigo-400 font-semibold whitespace-nowrap shrink-0"
             >
-              <Globe className="w-3.5 h-3.5" /> API Ingestion
+              <Globe className="w-3.5 h-3.5 shrink-0" /> API Ingestion
             </button>
-            <span className="hover:text-white cursor-pointer transition-colors" onClick={handleOpenRegistry}>Model Registry</span>
-            <Link href="/docs" className="hover:text-white transition-colors">Documentation</Link>
+            <span className="hover:text-white cursor-pointer transition-colors whitespace-nowrap shrink-0" onClick={handleOpenRegistry}>Model Registry</span>
+            <Link href="/docs" className="hover:text-white transition-colors whitespace-nowrap shrink-0">Documentation</Link>
           </nav>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 lg:gap-2.5 shrink-0">
           <button
             onClick={() => setIsApiModalOpen(true)}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 font-semibold text-xs font-mono transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 font-semibold text-xs font-mono transition-all cursor-pointer whitespace-nowrap shrink-0"
             title="Open API Ingestion Console & REST Tester"
           >
-            <Send className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="hidden sm:inline">API Console</span>
+            <Send className="w-3 h-3 text-indigo-400 shrink-0" />
+            <span className="whitespace-nowrap">API Console</span>
           </button>
-          <p className="text-[10px] text-zinc-500 font-mono hidden lg:block mr-4">
+          
+          <p className="text-[10px] text-zinc-500 font-mono hidden xl:block mr-2 whitespace-nowrap shrink-0">
             {isConnected
               ? orchestratorReady
                 ? "CONNECTED · READY"
@@ -607,10 +645,10 @@ export default function Dashboard() {
           </p>
 
           {/* Operating Mode Toggle */}
-          <div className="flex items-center bg-zinc-900/80 border border-zinc-800/80 rounded-lg p-1">
+          <div className="flex items-center bg-zinc-900/80 border border-zinc-800/80 rounded-lg p-0.5 shrink-0 whitespace-nowrap">
             <button
               onClick={() => setOperatingMode("demo")}
-              className={`px-3 py-1.5 text-xs font-mono font-medium rounded-md transition-all ${
+              className={`px-2.5 py-1 text-xs font-mono font-medium rounded-md transition-all whitespace-nowrap ${
                 (!config?.operating_mode || config.operating_mode === "demo")
                   ? "bg-zinc-800 text-white shadow-sm"
                   : "text-zinc-500 hover:text-zinc-300"
@@ -620,7 +658,7 @@ export default function Dashboard() {
             </button>
             <button
               onClick={() => setOperatingMode("real_data")}
-              className={`px-3 py-1.5 text-xs font-mono font-medium rounded-md transition-all ${
+              className={`px-2.5 py-1 text-xs font-mono font-medium rounded-md transition-all whitespace-nowrap ${
                 config?.operating_mode === "real_data"
                   ? "bg-zinc-800 text-white shadow-sm"
                   : "text-zinc-500 hover:text-zinc-300"
@@ -632,26 +670,26 @@ export default function Dashboard() {
 
           <button
             onClick={refetch}
-            className="p-2 border border-zinc-800 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all cursor-pointer"
+            className="p-1.5 border border-zinc-800 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all cursor-pointer shrink-0"
             title="Force refresh"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-3.5 h-3.5" />
           </button>
           
           <button
             onClick={handleReset}
             disabled={isResetting}
-            className="p-2 border border-rose-500/20 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-all cursor-pointer disabled:opacity-50"
+            className="p-1.5 border border-rose-500/20 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-all cursor-pointer disabled:opacity-50 shrink-0"
             title="Reset DB"
           >
-            <Database className="w-4 h-4" />
+            <Database className="w-3.5 h-3.5" />
           </button>
 
           {config?.operating_mode === "real_data" ? (
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white transition-all font-semibold text-xs cursor-pointer">
-                <Upload className="w-3.5 h-3.5" />
-                {uploadFile ? uploadFile.name : "CSV"}
+            <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap">
+              <label className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white transition-all font-semibold text-xs cursor-pointer whitespace-nowrap shrink-0">
+                <Upload className="w-3 h-3 shrink-0" />
+                <span className="truncate max-w-[80px]">{uploadFile ? uploadFile.name : "CSV"}</span>
                 <input
                   type="file"
                   accept=".csv"
@@ -663,28 +701,51 @@ export default function Dashboard() {
                 <button
                   onClick={handleUpload}
                   disabled={isUploading}
-                  className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50"
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
                 >
                   {isUploading ? "..." : "Up"}
                 </button>
               )}
               <button
-                onClick={handleReplayBatch}
-                disabled={isSimulating || !isConnected || !orchestratorReady}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-900/50 transition-all font-semibold text-xs cursor-pointer disabled:opacity-50"
+                onClick={toggleAutoStream}
+                disabled={!isConnected || !orchestratorReady}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white shadow-lg transition-all font-semibold text-xs cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0 ${
+                  isAutoStreaming
+                    ? "bg-amber-600 hover:bg-amber-500 animate-pulse shadow-amber-900/50"
+                    : "bg-rose-600 hover:bg-rose-500 shadow-rose-900/50"
+                }`}
+                title={isAutoStreaming ? "Pause automated dataset streaming" : "Continuously stream batches every 2.5s"}
               >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                Replay Batch
+                {isAutoStreaming ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-white animate-ping shrink-0" />
+                    <span>Streaming (Pause)</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3 h-3 fill-current shrink-0" />
+                    <span>Stream Batches</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={handleReplayBatch}
+                disabled={isSimulating || !isConnected || !orchestratorReady || isAutoStreaming}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-all font-semibold text-xs cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0 border border-zinc-700/60"
+                title="Replay single batch step"
+              >
+                <ChevronRight className="w-3 h-3 shrink-0" />
+                <span>Step</span>
               </button>
             </div>
           ) : (
             <button
               onClick={handleSimulate}
               disabled={isSimulating || !isConnected || !orchestratorReady}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-900/50 transition-all font-semibold text-xs cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-900/50 transition-all font-semibold text-xs cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
             >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              {isSimulating ? "Injecting..." : !orchestratorReady ? "Training…" : "Simulate Drift"}
+              <Play className="w-3 h-3 fill-current shrink-0" />
+              <span>{isSimulating ? "Injecting..." : !orchestratorReady ? "Training…" : "Simulate Drift"}</span>
             </button>
           )}
         </div>
