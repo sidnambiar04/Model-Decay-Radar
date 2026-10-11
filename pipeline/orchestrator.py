@@ -539,37 +539,44 @@ class RadarOrchestrator:
                 combined_X = np.concatenate([ref_sub_X, training_drift_X], axis=0)
                 combined_y = np.concatenate([ref_sub_y, training_drift_y], axis=0)
 
-                # Capture BEFORE metrics (active model performance on validation set)
-                val_n = min(1000, len(self.reference_raw_X))
-                
-                _classes, _counts = np.unique(self.reference_raw_y, return_counts=True)
-                if val_n < len(self.reference_raw_X) and np.all(_counts >= 2) and len(_classes) >= 2:
-                    from sklearn.model_selection import train_test_split
-                    _, val_X, _, val_y = train_test_split(
-                        self.reference_raw_X, self.reference_raw_y,
-                        test_size=val_n,
-                        stratify=self.reference_raw_y,
+                # Hold out a proper validation set from BOTH reference baseline and drifted anomaly data
+                # to measure genuine model degradation and candidate recovery.
+                from sklearn.model_selection import train_test_split
+                _classes, _counts = np.unique(combined_y, return_counts=True)
+
+                if len(_classes) >= 2 and np.all(_counts >= 2):
+                    # Stratified hold-out split (20% of combined data, capped at 500 samples)
+                    val_ratio = min(0.20, max(0.10, 500.0 / len(combined_X)))
+                    train_X, val_X, train_y, val_y = train_test_split(
+                        combined_X, combined_y,
+                        test_size=val_ratio,
+                        stratify=combined_y,
                         random_state=42
                     )
                 else:
-                    val_X = self.reference_raw_X[-val_n:]
-                    val_y = self.reference_raw_y[-val_n:]
+                    # Fallback to balanced holdout if stratification isn't possible
+                    val_size = min(500, max(20, len(combined_X) // 5))
+                    train_X = combined_X[:-val_size]
+                    train_y = combined_y[:-val_size]
+                    val_X = combined_X[-val_size:]
+                    val_y = combined_y[-val_size:]
 
+                # Capture BEFORE metrics (active model performance on the hold-out validation set)
                 before_metrics = self.validation_gate.evaluate_model_metrics(self.classifier, val_X, val_y)
 
-                # Train Candidate Classifier Model
+                # Train Candidate Classifier Model on training split
                 from classifier import get_default_model
                 candidate_model = get_default_model(active_model_name)
                 
-                print(f"[Orchestrator] Training candidate model '{active_model_name}' on {len(combined_X)} samples...")
-                if len(np.unique(combined_y)) >= 2:
-                    candidate_model.fit(combined_X, combined_y)
+                print(f"[Orchestrator] Training candidate model '{active_model_name}' on {len(train_X)} samples...")
+                if len(np.unique(train_y)) >= 2:
+                    candidate_model.fit(train_X, train_y)
                 else:
                     from sklearn.dummy import DummyClassifier
                     candidate_model = DummyClassifier(strategy="most_frequent")
-                    candidate_model.fit(combined_X, combined_y)
+                    candidate_model.fit(train_X, train_y)
 
-                # 2. Run Validation Gate Engine on held-out reference validation subset
+                # 2. Run Validation Gate Engine on the hold-out validation subset
                 val_result = self.validation_gate.evaluate_candidate(
                     active_classifier=self.classifier,
                     candidate_classifier=candidate_model,

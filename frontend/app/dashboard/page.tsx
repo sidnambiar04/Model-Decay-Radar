@@ -69,21 +69,20 @@ export default function Dashboard() {
 
   // Validation gate state
   const [showValidationGate, setShowValidationGate] = useState(false);
-  const previousValidationStatus = useRef<string | undefined>(undefined);
-  const previousValidationCycle = useRef<number | undefined>(undefined);
+  const lastSeenValidationBatch = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    if (latest?.validation_status && latest.validation_status !== "none") {
-      if (
-        latest.validation_status !== previousValidationStatus.current ||
-        latest.cycles !== previousValidationCycle.current
-      ) {
+    if (
+      latest?.validation_metrics &&
+      latest.validation_status &&
+      latest.validation_status !== "none"
+    ) {
+      if (latest.batch_id !== lastSeenValidationBatch.current) {
         setShowValidationGate(true);
-        previousValidationStatus.current = latest.validation_status;
-        previousValidationCycle.current = latest.cycles;
+        lastSeenValidationBatch.current = latest.batch_id;
       }
     }
-  }, [latest?.validation_status, latest?.cycles]);
+  }, [latest?.validation_status, latest?.validation_metrics, latest?.batch_id]);
 
   // Upload state
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -579,6 +578,14 @@ export default function Dashboard() {
               <Globe className="w-3.5 h-3.5" /> API Ingestion
             </button>
             <span className="hover:text-white cursor-pointer transition-colors" onClick={handleOpenRegistry}>Model Registry</span>
+            {latest?.validation_metrics && (
+              <button
+                onClick={() => setShowValidationGate(true)}
+                className="hover:text-emerald-300 text-emerald-400 cursor-pointer transition-colors flex items-center gap-1.5 font-semibold text-sm"
+              >
+                <CheckCircle className="w-3.5 h-3.5" /> Validation Gate
+              </button>
+            )}
             <Link href="/docs" className="hover:text-white transition-colors">Documentation</Link>
           </nav>
         </div>
