@@ -69,20 +69,31 @@ export default function Dashboard() {
 
   // Validation gate state
   const [showValidationGate, setShowValidationGate] = useState(false);
-  const lastSeenValidationBatch = useRef<number | undefined>(undefined);
+  const lastAutoShownBatchRef = useRef<number | undefined>(undefined);
+  const isInitialMount = useRef(true);
 
   useEffect(() => {
+    if (isInitialMount.current) {
+      if (latest?.batch_id !== undefined) {
+        lastAutoShownBatchRef.current = latest.batch_id;
+        isInitialMount.current = false;
+      }
+      return;
+    }
+
+    // Only auto-open when a fresh retraining event occurs during active usage
     if (
+      latest?.retraining_triggered &&
       latest?.validation_metrics &&
-      latest.validation_status &&
+      latest?.validation_status &&
       latest.validation_status !== "none"
     ) {
-      if (latest.batch_id !== lastSeenValidationBatch.current) {
+      if (latest.batch_id !== lastAutoShownBatchRef.current) {
         setShowValidationGate(true);
-        lastSeenValidationBatch.current = latest.batch_id;
+        lastAutoShownBatchRef.current = latest.batch_id;
       }
     }
-  }, [latest?.validation_status, latest?.validation_metrics, latest?.batch_id]);
+  }, [latest?.retraining_triggered, latest?.validation_status, latest?.validation_metrics, latest?.batch_id]);
 
   // Upload state
   const [uploadFile, setUploadFile] = useState<File | null>(null);
